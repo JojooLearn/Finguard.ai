@@ -44,3 +44,4 @@ class DebtError extends DebtState {
   @override
   List<Object?> get props => [message];
 }
+

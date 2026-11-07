@@ -85,3 +85,4 @@ class DebtEntity extends Equatable {
         updatedAt,
       ];
 }
+

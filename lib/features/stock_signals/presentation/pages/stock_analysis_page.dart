@@ -45,14 +45,14 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
   static const List<String> _popularTickers = [
     'BBCA',
     'BBRI',
-    'DEWA',
-    'ANDA',
-    'BREN',
-    'WBSA',
+    'BMRI',
+    'TLKM',
+    'ASII',
     'BBNI',
     'GOTO',
+    'BREN',
+    'DEWA',
     'ADRO',
-    'BUMI',
   ];
 
   @override
@@ -166,7 +166,7 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
                             letterSpacing: 1.1,
                           ),
                           decoration: InputDecoration(
-                            hintText: 'Ketik kode saham (misal: BBRI, DEWA, ANDA)',
+                            hintText: 'Ketik kode saham (misal: BBCA, BBRI, DEWA)',
                             hintStyle: AppTypography.captionText.copyWith(
                               color: AppColors.textPlaceholder,
                               fontSize: 13,
@@ -234,51 +234,39 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
                 ),
                 const SizedBox(width: 8),
                 ..._popularTickers.map((ticker) {
-                  final isEipo = ticker == 'ANDA' || ticker == 'WBSA';
+                  final isSelected =
+                      _searchController.text.trim().toUpperCase() == ticker;
                   return Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: GestureDetector(
                       onTap: () => _onSearch(ticker),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
+                          horizontal: 12,
+                          vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: isEipo
-                              ? AppColors.primaryLight
+                          color: isSelected
+                              ? AppColors.primary
                               : AppColors.surfaceFieldFill,
                           borderRadius:
                               BorderRadius.circular(AppSpacing.radiusPill),
-                          border: isEipo
-                              ? Border.all(
-                                  color: AppColors.primary.withValues(alpha: 0.3),
-                                  width: 1,
-                                )
-                              : null,
+                          border: Border.all(
+                            color: isSelected
+                                ? AppColors.primary
+                                : Colors.transparent,
+                            width: 1,
+                          ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isEipo) ...[
-                              const Icon(
-                                Icons.rocket_launch_rounded,
-                                size: 11,
-                                color: AppColors.primary,
-                              ),
-                              const SizedBox(width: 4),
-                            ],
-                            Text(
-                              ticker,
-                              style: AppTypography.captionText.copyWith(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                                color: isEipo
-                                    ? AppColors.primary
-                                    : AppColors.textPrimary,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          ticker,
+                          style: AppTypography.captionText.copyWith(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: isSelected
+                                ? Colors.white
+                                : AppColors.textPrimary,
+                          ),
                         ),
                       ),
                     ),
