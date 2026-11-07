@@ -682,12 +682,23 @@ class StockSignalDashboardCard extends StatelessWidget {
 
               const SizedBox(height: 14),
 
-              // High-Resolution Technical Sparkline Card with Support / Pivot / Resistance
+              // High-Resolution Technical Sparkline Card with Support / Pivot / Resistance (Clean Light Palette)
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF111827),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppColors.primaryLight.withValues(alpha: 0.45),
+                      const Color(0xFFF8FAFC),
+                    ],
+                  ),
                   borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    width: 1.2,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -712,10 +723,10 @@ class StockSignalDashboardCard extends StatelessWidget {
                                   'Trajektori Momentum IDX:${item.ticker} (${item.timeframe})',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 11.5,
+                                  style: AppTypography.itemTitle.copyWith(
+                                    fontSize: 12,
                                     fontWeight: FontWeight.w700,
-                                    color: Colors.white,
+                                    color: AppColors.textPrimary,
                                   ),
                                 ),
                               ),
@@ -723,12 +734,38 @@ class StockSignalDashboardCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Text(
-                          'TradingView Radar',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF9CA3AF),
+                        GestureDetector(
+                          onTap: () => _openTradingViewChart(item.ticker),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'TradingView',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  PhosphorIcons.arrowsOutSimple(
+                                    PhosphorIconsStyle.bold,
+                                  ),
+                                  size: 13,
+                                  color: AppColors.primary,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -742,6 +779,7 @@ class StockSignalDashboardCard extends StatelessWidget {
                         signalType: item.signalType,
                         lineColor: badgeTextColor,
                         showGrid: true,
+                        gridColor: Colors.black.withValues(alpha: 0.06),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -751,17 +789,17 @@ class StockSignalDashboardCard extends StatelessWidget {
                         _buildPriceLevelBadge(
                           label: 'Support',
                           price: CurrencyFormatter.format(supportPrice),
-                          color: const Color(0xFF10B981),
+                          color: const Color(0xFF059669),
                         ),
                         _buildPriceLevelBadge(
                           label: 'Pivot Sinyal',
                           price: CurrencyFormatter.format(pivotPrice),
-                          color: const Color(0xFF60A5FA),
+                          color: AppColors.primary,
                         ),
                         _buildPriceLevelBadge(
                           label: 'Resistance',
                           price: CurrencyFormatter.format(resistancePrice),
-                          color: const Color(0xFFF59E0B),
+                          color: const Color(0xFFD97706),
                         ),
                       ],
                     ),
@@ -836,46 +874,6 @@ class StockSignalDashboardCard extends StatelessWidget {
 
               const SizedBox(height: 14),
 
-              // 1-Click Direct TradingView Official Chart Button
-              GestureDetector(
-                onTap: () => _openTradingViewChart(item.ticker),
-                child: Container(
-                  width: double.infinity,
-                  height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                  alignment: Alignment.center,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        PhosphorIcons.chartLineUp(PhosphorIconsStyle.bold),
-                        color: const Color(0xFF38BDF8),
-                        size: 17,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          'Buka Grafik Realtime di TradingView (IDX:${item.ticker}) ↗',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
               // Action: Tanya Coach Finansial
               GestureDetector(
                 onTap: () {
@@ -931,7 +929,7 @@ class StockSignalDashboardCard extends StatelessWidget {
           style: const TextStyle(
             fontSize: 9.5,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF9CA3AF),
+            color: AppColors.textSecondary,
           ),
         ),
         const SizedBox(height: 2),
@@ -1043,6 +1041,7 @@ class StockSparklineChart extends StatelessWidget {
   final StockSignalType signalType;
   final Color lineColor;
   final bool showGrid;
+  final Color? gridColor;
 
   const StockSparklineChart({
     super.key,
@@ -1050,6 +1049,7 @@ class StockSparklineChart extends StatelessWidget {
     required this.signalType,
     required this.lineColor,
     this.showGrid = false,
+    this.gridColor,
   });
 
   List<double> _generateTrajectoryPoints() {
@@ -1082,6 +1082,7 @@ class StockSparklineChart extends StatelessWidget {
         points: _generateTrajectoryPoints(),
         lineColor: lineColor,
         showGrid: showGrid,
+        gridColor: gridColor,
       ),
     );
   }
@@ -1091,11 +1092,13 @@ class _StockSparklinePainter extends CustomPainter {
   final List<double> points;
   final Color lineColor;
   final bool showGrid;
+  final Color? gridColor;
 
   _StockSparklinePainter({
     required this.points,
     required this.lineColor,
     required this.showGrid,
+    this.gridColor,
   });
 
   @override
@@ -1104,7 +1107,7 @@ class _StockSparklinePainter extends CustomPainter {
 
     if (showGrid) {
       final gridPaint = Paint()
-        ..color = Colors.white.withValues(alpha: 0.10)
+        ..color = gridColor ?? Colors.white.withValues(alpha: 0.10)
         ..strokeWidth = 0.8
         ..style = PaintingStyle.stroke;
 
@@ -1173,6 +1176,7 @@ class _StockSparklinePainter extends CustomPainter {
   bool shouldRepaint(covariant _StockSparklinePainter oldDelegate) {
     return oldDelegate.lineColor != lineColor ||
         oldDelegate.showGrid != showGrid ||
+        oldDelegate.gridColor != gridColor ||
         oldDelegate.points != points;
   }
 }
