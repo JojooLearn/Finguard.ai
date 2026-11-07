@@ -84,3 +84,4 @@ gitGraph
 - Setiap Pull Request akan ditinjau oleh Maintainer utama (**@JojooLearn / johdev**).
 - Tidak ada kontributor luar yang dapat langsung menggabungkan kode ke branch utama (`master`) tanpa persetujuan eksplisit dari Maintainer.
 - Jika ada penyesuaian yang diperlukan, Maintainer akan memberikan komentar dan saran perbaikan langsung pada halaman Pull Request.
+

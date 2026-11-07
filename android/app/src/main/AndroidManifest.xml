@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
 
     <application
-        android:label="Finguard"
+        android:label="Finguard.ai"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
         <activity

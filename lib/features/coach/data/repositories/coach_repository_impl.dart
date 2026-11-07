@@ -34,6 +34,7 @@ class CoachRepositoryImpl implements CoachRepository {
   });
 
   Future<String?>? _pendingGetOrCreate;
+  String? _cachedConversationId;
 
   Future<String?> _getOrCreateConversationId(
     String userId, [
@@ -43,7 +44,12 @@ class CoachRepositoryImpl implements CoachRepository {
       r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
     );
     if (candidateId != null && uuidRegex.hasMatch(candidateId)) {
+      _cachedConversationId = candidateId;
       return candidateId;
+    }
+
+    if (_cachedConversationId != null) {
+      return _cachedConversationId;
     }
 
     if (_pendingGetOrCreate != null) {
@@ -64,35 +70,24 @@ class CoachRepositoryImpl implements CoachRepository {
           .from('chat_conversations')
           .select('id')
           .eq('user_id', userId)
-          .isFilter('archived_at', null)
-          .order('updated_at', ascending: false)
+          .order('created_at', ascending: false)
           .limit(1);
 
       if (convList.isNotEmpty) {
-        return convList.first['id'] as String;
+        _cachedConversationId = convList.first['id'] as String;
+        return _cachedConversationId;
       }
 
-      // Try inserting with conversation_type: 'coach' (required by schema v1/v2 if present)
-      try {
-        final created = await client
-            .from('chat_conversations')
-            .insert({
-              'user_id': userId,
-              'title': 'Konsultasi FinGuard',
-              'conversation_type': 'coach',
-            })
-            .select('id')
-            .single();
-        return created['id'] as String;
-      } catch (_) {
-        // Fallback without conversation_type if column is omitted
-        final created = await client
-            .from('chat_conversations')
-            .insert({'user_id': userId, 'title': 'Konsultasi FinGuard'})
-            .select('id')
-            .single();
-        return created['id'] as String;
-      }
+      final created = await client
+          .from('chat_conversations')
+          .insert({
+            'user_id': userId,
+            'title': 'Konsultasi FinGuard',
+          })
+          .select('id')
+          .single();
+      _cachedConversationId = created['id'] as String;
+      return _cachedConversationId;
     } catch (_) {
       return null;
     }
@@ -393,6 +388,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // 2. Try remote Edge Function if user is authenticated
     int strictnessLevel = 3;
+    bool edgeFunctionPersisted = false;
     if (user != null) {
       try {
         // Ensure budgets are synced and persisted to Supabase so Edge Function has complete context
@@ -468,6 +464,10 @@ class CoachRepositoryImpl implements CoachRepository {
           if (needsClarification) {
             messageStatus = ChatMessageStatus.needsClarification;
           }
+          edgeFunctionPersisted = true;
+          if (data['conversation_id'] != null) {
+            _cachedConversationId = data['conversation_id'].toString();
+          }
         }
       } catch (e) {
         debugPrint('Coach chat invoke failed: $e');
@@ -492,9 +492,9 @@ class CoachRepositoryImpl implements CoachRepository {
       }
     }
 
-    // 4. Direct Client DB Persistence to Supabase (Guarantees data in chat_conversations & chat_messages)
+    // 4. Direct Client DB Persistence to Supabase (Fallback ONLY if Edge Function was not used or failed)
     String assistantMsgId = 'msg_ast_${DateTime.now().millisecondsSinceEpoch}';
-    if (user != null) {
+    if (user != null && !edgeFunctionPersisted) {
       final convId = activeConvId ?? await _getOrCreateConversationId(user.id);
       if (convId != null) {
         try {
@@ -2084,5 +2084,6 @@ class CoachRepositoryImpl implements CoachRepository {
   void clearLocalHistory() {
     _localChatHistory.clear();
     _pendingGetOrCreate = null;
+    _cachedConversationId = null;
   }
 }

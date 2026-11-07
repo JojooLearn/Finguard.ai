@@ -28,7 +28,9 @@ class BudgetRepositoryImpl implements BudgetRepository {
     if (lower.contains('tagihan') || lower.contains('utilitas')) {
       return 'tagihan & utilitas';
     }
-    if (lower == 'gaya hidup & hiburan' || lower == 'hiburan') {
+    if (lower.contains('hiburan') ||
+        lower.contains('gaya hidup') ||
+        lower.contains('hobi')) {
       return 'hiburan';
     }
     return lower;

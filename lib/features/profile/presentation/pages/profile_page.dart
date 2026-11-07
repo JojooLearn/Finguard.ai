@@ -630,7 +630,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         Text(
-                          'IG: @jojohanieh_',
+                          'johdev',
                           style: AppTypography.captionText.copyWith(
                             fontSize: 12,
                             fontWeight: FontWeight.w800,

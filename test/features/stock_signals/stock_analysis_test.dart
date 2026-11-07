@@ -245,10 +245,10 @@ void main() {
       expect(find.text('Cek & Analisa Saham'), findsOneWidget);
       expect(find.text('Analisis teknikal, bandarmologi & kapasitas saldo'), findsOneWidget);
 
-      // Verify johdev copyright footer exists
-      expect(find.text('FinGuard v1.0.0+1'), findsOneWidget);
-      expect(find.text('johdev'), findsOneWidget);
-      expect(find.textContaining('© 2026 FinGuard'), findsOneWidget);
+      // Verify johdev copyright footer exists (rendered in SingleChildScrollView)
+      expect(find.text('FinGuard v1.0.0+1', skipOffstage: false), findsOneWidget);
+      expect(find.text('johdev', skipOffstage: false), findsOneWidget);
+      expect(find.textContaining('© 2026 FinGuard', skipOffstage: false), findsOneWidget);
     });
   });
 }
