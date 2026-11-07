@@ -1,0 +1,80 @@
+# Miscellaneous & OS
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+Thumbs.db
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# Environment Variables & Secrets
+.env
+*.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# Internal Project Documentation (Confidential)
+docs/
+/docs/
+
+# IDE & Editor Configurations
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+
+# Flutter / Dart / Pub
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.flutter-plugins
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Android
+android/local.properties
+android/.gradle/
+.gradle/
+*.keystore
+*.jks
+key.properties
+android/key.properties
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+ios/Flutter/app.flx
+ios/Flutter/app.zip
+ios/Flutter/flutter_assets/
+ios/ServiceDefinitions.json
+GoogleService-Info.plist
+
+# Windows Desktop
+windows/flutter/ephemeral/
+
+# Supabase CLI Local Runtime Data
+.supabase/
+
+# Symbolication & Obfuscation
+app.*.symbols
+app.*.map.json
