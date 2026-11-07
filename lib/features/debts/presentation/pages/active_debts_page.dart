@@ -355,22 +355,25 @@ class _ActiveDebtsView extends StatelessWidget {
       appBar: AppBar(
         title: Text(
           'Manajemen Cicilan Aktif',
-          style: AppTypography.screenTitle.copyWith(fontSize: 18),
+          style: AppTypography.pageHeader,
         ),
-        centerTitle: true,
+        centerTitle: false,
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(PhosphorIcons.arrowLeft(PhosphorIconsStyle.bold),
-              color: AppColors.textPrimary),
-          onPressed: () => Navigator.pop(context),
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 14),
+          child: AppIconButton(
+            icon: PhosphorIcons.arrowLeft(),
+            onPressed: () => Navigator.pop(context),
+          ),
         ),
         actions: [
-          IconButton(
-            icon: Icon(PhosphorIcons.plusCircle(PhosphorIconsStyle.bold),
-                color: AppColors.primary),
-            tooltip: 'Tambah Cicilan',
-            onPressed: () => _showAddDebtSheet(context),
+          Padding(
+            padding: const EdgeInsets.only(right: 14),
+            child: AppIconButton(
+              icon: PhosphorIcons.plus(),
+              onPressed: () => _showAddDebtSheet(context),
+            ),
           ),
         ],
       ),

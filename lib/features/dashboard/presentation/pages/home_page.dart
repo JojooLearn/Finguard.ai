@@ -52,6 +52,9 @@ class _HomePageState extends State<HomePage> {
     _selectedMonth = DateTime(now.year, now.month, 1);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await PushNotificationService().requestPermission();
+      if (mounted) {
+        context.read<StockSignalListCubit>().loadSignals();
+      }
       _checkUnreadNotifications();
     });
   }

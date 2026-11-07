@@ -8,6 +8,7 @@ import '../../../../app/theme/app_typography.dart';
 import '../../../../core/formatters/currency_formatter.dart';
 import '../../../../core/formatters/currency_input_formatter.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/status_chip.dart';
 import '../../../../core/widgets/explanation_sheet.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../cubit/goal_cubit.dart';
@@ -663,58 +664,138 @@ class _GoalsPageState extends State<GoalsPage> {
 
         return Scaffold(
           backgroundColor: AppColors.background,
-          body: SafeArea(
-            child: RefreshIndicator(
-              color: AppColors.primary,
-              backgroundColor: AppColors.surfaceCard,
-              onRefresh: () => context.read<GoalCubit>().loadGoals(),
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: BouncingScrollPhysics(),
+          appBar: AppBar(
+            title: Text(
+              'Target Tabungan',
+              style: AppTypography.pageHeader,
+            ),
+            centerTitle: false,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            leading: Padding(
+              padding: const EdgeInsets.only(left: 14),
+              child: AppIconButton(
+                icon: PhosphorIcons.arrowLeft(),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 14),
+                child: AppIconButton(
+                  icon: PhosphorIcons.plus(),
+                  onPressed: () => _showAddGoalDialog(
+                    context,
+                    hasEmergencyFund: hasEmergencyFund,
+                  ),
                 ),
-                padding: const EdgeInsets.only(
-                  left: AppSpacing.sideMargin,
-                  right: AppSpacing.sideMargin,
-                  top: 12,
-                  bottom: 120,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Standardized consistent header
+              ),
+            ],
+          ),
+          body: RefreshIndicator(
+            color: AppColors.primary,
+            backgroundColor: AppColors.surfaceCard,
+            onRefresh: () => context.read<GoalCubit>().loadGoals(),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (displayGoals.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 36,
+                        horizontal: 20,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceCard,
+                        borderRadius: BorderRadius.circular(
+                          AppSpacing.cardRadius,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryLight,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                              child: Icon(
+                                PhosphorIcons.piggyBank(PhosphorIconsStyle.fill),
+                                color: AppColors.primary,
+                                size: 28,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            'Belum Ada Target Tabungan',
+                            style: AppTypography.itemTitle.copyWith(fontSize: 16),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Mulai buat target tabungan seperti Dana Darurat atau rencana belanja impian.',
+                            style: AppTypography.caption,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                          AppButton(
+                            label: 'Tambah Target Baru',
+                            onPressed: () => _showAddGoalDialog(
+                              context,
+                              hasEmergencyFund: hasEmergencyFund,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else ...[
+                    // Bento Summary Card for Emergency Fund / Primary Goal
+                    _buildFeaturedDarkGoalCard(
+                      context: context,
+                      goal: displayGoals.first,
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Section: Target Impian Lainnya
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            AppIconButton(
-                              icon: PhosphorIcons.arrowLeft(),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                            const SizedBox(width: 14),
-                            Text(
-                              'Target Tabungan',
-                              style: AppTypography.pageHeader,
-                            ),
-                          ],
+                        Text(
+                          'Target Impian (${displayGoals.length - 1})',
+                          style: AppTypography.sectionLabel.copyWith(fontSize: 15),
                         ),
-                        AppIconButton(
-                          icon: PhosphorIcons.plus(),
-                          onPressed: () => _showAddGoalDialog(
+                        GestureDetector(
+                          onTap: () => _showAddGoalDialog(
                             context,
                             hasEmergencyFund: hasEmergencyFund,
+                          ),
+                          child: Text(
+                            '+ Tambah Baru',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 12),
 
-                    if (displayGoals.isEmpty)
+                    if (displayGoals.length == 1)
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(
-                          vertical: 40,
-                          horizontal: 20,
+                          vertical: 24,
+                          horizontal: 18,
                         ),
                         decoration: BoxDecoration(
                           color: AppColors.surfaceCard,
@@ -724,52 +805,36 @@ class _GoalsPageState extends State<GoalsPage> {
                         ),
                         child: Column(
                           children: [
-                            Image.asset(
-                              'assets/images/empty_goals.png',
-                              width: 160,
-                              height: 160,
-                              fit: BoxFit.contain,
+                            Icon(
+                              PhosphorIcons.sparkle(PhosphorIconsStyle.bold),
+                              color: AppColors.primary,
+                              size: 26,
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 8),
                             Text(
-                              'Belum Ada Target Tabungan',
-                              style: AppTypography.screenTitle.copyWith(
-                                fontSize: 16,
-                              ),
+                              'Belum Ada Target Tambahan',
+                              style: AppTypography.itemTitle.copyWith(fontSize: 14),
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 4),
                             Text(
-                              'Mulai buat target tabungan seperti Dana Darurat atau rencana belanja impian.',
-                              style: AppTypography.caption,
+                              'Tambahkan impian seperti gadget baru, liburan, atau kendaraan.',
                               textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 20),
-                            AppButton(
-                              label: 'Tambah Target Baru',
-                              onPressed: () => _showAddGoalDialog(
-                                context,
-                                hasEmergencyFund: hasEmergencyFund,
-                              ),
+                              style: AppTypography.caption,
                             ),
                           ],
                         ),
-                      ),
+                      )
+                    else
+                      ...displayGoals.skip(1).map(
+                            (goal) => _buildSecondaryGoalCard(
+                              context: context,
+                              goal: goal,
+                            ),
+                          ),
 
-                    for (int i = 0; i < displayGoals.length; i++) ...[
-                      if (i == 0)
-                        _buildFeaturedDarkGoalCard(
-                          context: context,
-                          goal: displayGoals[i],
-                        )
-                      else
-                        _buildSecondaryGoalCard(
-                          context: context,
-                          goal: displayGoals[i],
-                        ),
-                      const SizedBox(height: 16),
-                    ],
+                    const SizedBox(height: 36),
                   ],
-                ),
+                ],
               ),
             ),
           ),
@@ -836,7 +901,7 @@ class _GoalsPageState extends State<GoalsPage> {
     );
   }
 
-  /// Featured Primary Goal Card (Zero Shadows, Clean Bento)
+  /// Featured Primary Goal Card (Harmonized Bento Card matching Active Debts Summary)
   Widget _buildFeaturedDarkGoalCard({
     required BuildContext context,
     required _LocalGoalItem goal,
@@ -845,9 +910,10 @@ class _GoalsPageState extends State<GoalsPage> {
     final percent = (progress * 100).toInt();
     final isEmergency = goal.type == GoalType.emergencyFund;
     final remaining = (goal.target - goal.current).clamp(0.0, double.infinity);
+    final isTargetReached = goal.target > 0 && goal.current >= goal.target;
 
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: AppColors.darkCardGradient,
         borderRadius: BorderRadius.circular(AppSpacing.cardRadius),
@@ -855,296 +921,177 @@ class _GoalsPageState extends State<GoalsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row: Left Icon + Metadata Column, Right Actions
+          // Top Row: Title + info tap trigger on left, StatusChip on right
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Center(
-                  child: Icon(
-                    isEmergency
-                        ? PhosphorIcons.shieldCheck(PhosphorIconsStyle.fill)
-                        : PhosphorIcons.target(PhosphorIconsStyle.fill),
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Badge Row
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.18),
-                            borderRadius: BorderRadius.circular(100),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                isEmergency
-                                    ? PhosphorIcons.shieldCheck(
-                                        PhosphorIconsStyle.fill,
-                                      )
-                                    : PhosphorIcons.star(PhosphorIconsStyle.fill),
-                                size: 10,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                isEmergency
-                                    ? 'Fokus Utama'
-                                    : 'Prioritas ${goal.priority}/5',
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(100),
-                          ),
-                          child: Text(
-                            goal.targetDate,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white.withValues(alpha: 0.9),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    // Title + Info Trigger (Spacious & Clean)
-                    GestureDetector(
-                      onTap: () {
-                        final essentialMonthly =
-                            goal.target > 0 ? (goal.target / 3) : 0.0;
-                        if (isEmergency) {
-                          ExplanationSheet.show(
-                            context,
-                            title: goal.title,
-                            metricValue: CurrencyFormatter.format(goal.target),
-                            formula:
-                                '3 Bulan x ${CurrencyFormatter.format(essentialMonthly)} = ${CurrencyFormatter.format(goal.target)}',
-                            explanation:
-                                'Target celengan Dana Darurat sebesar ${CurrencyFormatter.format(goal.target)} dihitung dari 3 kali kebutuhan pokok bulananmu (${CurrencyFormatter.format(essentialMonthly)} per bulan).\n\nSaat ini telah terkumpul ${CurrencyFormatter.format(goal.current)} ($percent%). Sisa kekurangan yang perlu kamu kumpulkan adalah ${CurrencyFormatter.format(remaining)}.',
-                            tip:
-                                'Simpan dana darurat di tabungan terpisah yang mudah dicairkan tapi tidak terhubung ke kartu debit belanja harian.',
-                            icon: PhosphorIcons.shieldCheck(
-                              PhosphorIconsStyle.fill,
-                            ),
-                          );
-                        } else {
-                          ExplanationSheet.show(
-                            context,
-                            title: goal.title,
-                            metricValue: CurrencyFormatter.format(goal.target),
-                            formula:
-                                'Terkumpul ${CurrencyFormatter.format(goal.current)} / Target ${CurrencyFormatter.format(goal.target)} ($percent%)',
-                            explanation:
-                                'Target tabungan untuk "${goal.title}". Dari total target sebesar ${CurrencyFormatter.format(goal.target)}, kamu sudah mengumpulkan ${CurrencyFormatter.format(goal.current)} ($percent%). Sisa dana yang dibutuhkan adalah ${CurrencyFormatter.format(remaining)}.',
-                            tip:
-                                'Sisihkan di awal bulan secara konsisten setiap menerima penghasilan agar target tercapai sesuai jadwal.',
-                            icon: PhosphorIcons.piggyBank(
-                              PhosphorIconsStyle.fill,
-                            ),
-                          );
-                        }
-                      },
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              goal.title,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Icon(
-                            PhosphorIcons.info(PhosphorIconsStyle.bold),
-                            size: 15,
-                            color: Colors.white.withValues(alpha: 0.75),
-                          ),
-                        ],
+              GestureDetector(
+                onTap: () {
+                  final essentialMonthly =
+                      goal.target > 0 ? (goal.target / 3) : 0.0;
+                  if (isEmergency) {
+                    ExplanationSheet.show(
+                      context,
+                      title: goal.title,
+                      metricValue: CurrencyFormatter.format(goal.target),
+                      formula:
+                          '3 Bulan x ${CurrencyFormatter.format(essentialMonthly)} = ${CurrencyFormatter.format(goal.target)}',
+                      explanation:
+                          'Target celengan Dana Darurat sebesar ${CurrencyFormatter.format(goal.target)} dihitung dari 3 kali kebutuhan pokok bulananmu (${CurrencyFormatter.format(essentialMonthly)} per bulan).\n\nSaat ini telah terkumpul ${CurrencyFormatter.format(goal.current)} ($percent%). Sisa kekurangan yang perlu kamu kumpulkan adalah ${CurrencyFormatter.format(remaining)}.',
+                      tip:
+                          'Simpan dana darurat di tabungan terpisah yang mudah dicairkan tapi tidak terhubung ke kartu debit belanja harian.',
+                      icon: PhosphorIcons.shieldCheck(
+                        PhosphorIconsStyle.fill,
                       ),
+                    );
+                  } else {
+                    ExplanationSheet.show(
+                      context,
+                      title: goal.title,
+                      metricValue: CurrencyFormatter.format(goal.target),
+                      formula:
+                          'Terkumpul ${CurrencyFormatter.format(goal.current)} / Target ${CurrencyFormatter.format(goal.target)} ($percent%)',
+                      explanation:
+                          'Target tabungan untuk "${goal.title}". Dari total target sebesar ${CurrencyFormatter.format(goal.target)}, kamu sudah mengumpulkan ${CurrencyFormatter.format(goal.current)} ($percent%). Sisa dana yang dibutuhkan adalah ${CurrencyFormatter.format(remaining)}.',
+                      tip:
+                          'Sisihkan di awal bulan secara konsisten setiap menerima penghasilan agar target tercapai sesuai jadwal.',
+                      icon: PhosphorIcons.piggyBank(
+                        PhosphorIconsStyle.fill,
+                      ),
+                    );
+                  }
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Terkumpul ${goal.title}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Icon(
+                      PhosphorIcons.info(PhosphorIconsStyle.bold),
+                      size: 14,
+                      color: Colors.white.withValues(alpha: 0.7),
                     ),
                   ],
                 ),
               ),
-              if (!isEmergency)
-                GestureDetector(
-                  onTap: () => _confirmDeleteGoal(context, goal),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Icon(
-                        PhosphorIcons.trash(),
-                        size: 14,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
+              isTargetReached
+                  ? StatusChip.aman('Tercapai $percent%')
+                  : StatusChip.perhatian('$percent% dari Target'),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 8),
 
-          // Balance Showcase Row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'TERKUMPUL SAAT INI',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      color: Colors.white.withValues(alpha: 0.65),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    CurrencyFormatter.format(goal.current),
-                    style: AppTypography.bigNumberLight.copyWith(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-                child: Text(
-                  '$percent%',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
+          // Big number: Current amount
           Text(
-            remaining > 0
-                ? 'Target ${CurrencyFormatter.format(goal.target)} • Kurang ${CurrencyFormatter.format(remaining)}'
-                : 'Target ${CurrencyFormatter.format(goal.target)} • Sudah Terpenuhi 🎉',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.8),
+            CurrencyFormatter.format(goal.current),
+            style: AppTypography.bigNumber.copyWith(
+              color: Colors.white,
+              fontSize: 28,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Progress indicator
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              minHeight: 6,
+              backgroundColor: Colors.white.withValues(alpha: 0.15),
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
             ),
           ),
           const SizedBox(height: 14),
 
-          // Sleek Progress Track
-          ClipRRect(
-            borderRadius: BorderRadius.circular(100),
-            child: LinearProgressIndicator(
-              value: progress.clamp(0.0, 1.0),
-              minHeight: 8,
-              backgroundColor: Colors.white.withValues(alpha: 0.18),
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+          // Inner breakdown container matching Active Debts
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      isEmergency
+                          ? PhosphorIcons.shieldCheck(PhosphorIconsStyle.fill)
+                          : PhosphorIcons.target(PhosphorIconsStyle.fill),
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Target Dana:',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      CurrencyFormatter.format(goal.target),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  remaining > 0
+                      ? 'Kurang ${CurrencyFormatter.format(remaining)}'
+                      : 'Lengkap 🎉',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: remaining > 0 ? 0.9 : 1.0),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
-          // Sleek Action Button
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => _showContributionSheet(
+          // Action Button: "Masukin Tabungan"
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _showContributionSheet(
                 context,
                 goalId: goal.id,
                 title: goal.title,
                 currentAmount: goal.current,
                 targetAmount: goal.target,
               ),
-              borderRadius: BorderRadius.circular(100),
-              child: Container(
-                width: double.infinity,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(100),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+              icon: Icon(
+                PhosphorIcons.plusCircle(PhosphorIconsStyle.bold),
+                size: 16,
+                color: AppColors.primaryDark,
+              ),
+              label: const Text('Masukin Tabungan'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: AppColors.primaryDark,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                alignment: Alignment.center,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      PhosphorIcons.plusCircle(PhosphorIconsStyle.fill),
-                      size: 18,
-                      color: AppColors.primaryDark,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Masukin Tabungan',
-                      style: TextStyle(
-                        color: AppColors.primaryDark,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ],
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
                 ),
               ),
             ),
@@ -1154,16 +1101,18 @@ class _GoalsPageState extends State<GoalsPage> {
     );
   }
 
-  /// Secondary Goal Card (Zero Shadows)
+  /// Secondary Goal Card (Harmonized with Active Debts List Cards)
   Widget _buildSecondaryGoalCard({
     required BuildContext context,
     required _LocalGoalItem goal,
   }) {
     final progress = goal.target > 0 ? (goal.current / goal.target) : 0.0;
     final percent = (progress * 100).toInt();
+    final remaining = (goal.target - goal.current).clamp(0.0, double.infinity);
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
         borderRadius: BorderRadius.circular(AppSpacing.cardRadius),
@@ -1172,10 +1121,11 @@ class _GoalsPageState extends State<GoalsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
                   color: AppColors.primaryLight,
                   borderRadius: BorderRadius.circular(12),
@@ -1192,163 +1142,203 @@ class _GoalsPageState extends State<GoalsPage> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    final remaining = (goal.target - goal.current).clamp(
-                      0.0,
-                      double.infinity,
-                    );
-                    ExplanationSheet.show(
-                      context,
-                      title: goal.title,
-                      metricValue: CurrencyFormatter.format(goal.target),
-                      formula:
-                          'Terkumpul ${CurrencyFormatter.format(goal.current)} / Target ${CurrencyFormatter.format(goal.target)} ($percent%)',
-                      explanation:
-                          'Target tabungan "${goal.title}". Dari total rencana ${CurrencyFormatter.format(goal.target)}, sudah terkumpul sebesar ${CurrencyFormatter.format(goal.current)} ($percent%). Sisa dana yang dibutuhkan adalah ${CurrencyFormatter.format(remaining)}.',
-                      tip:
-                          'Sisihkan secara konsisten di awal bulan setiap gajian agar target tercapai pada ${goal.targetDate}.',
-                      icon: goal.type == GoalType.savings
-                          ? PhosphorIcons.piggyBank(PhosphorIconsStyle.fill)
-                          : PhosphorIcons.target(PhosphorIconsStyle.fill),
-                    );
-                  },
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              goal.title,
-                              style: AppTypography.sectionLabel.copyWith(
-                                fontSize: 16,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            goal.title,
+                            style: AppTypography.itemTitle.copyWith(fontSize: 15),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            PhosphorIcons.info(PhosphorIconsStyle.bold),
-                            size: 13,
-                            color: AppColors.textSecondary,
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
                           ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
+                          decoration: BoxDecoration(
+                            color: goal.priority >= 4
+                                ? AppColors.expenseRedBg
+                                : AppColors.primaryLight,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            goal.priority == 5
+                                ? 'P5 • Utama'
+                                : goal.priority == 4
+                                    ? 'P4 • Tinggi'
+                                    : goal.priority == 3
+                                        ? 'P3 • Sedang'
+                                        : 'P${goal.priority} • Santai',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
                               color: goal.priority >= 4
-                                  ? AppColors.expenseRedBg
-                                  : AppColors.primaryLight,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              goal.priority == 5
-                                  ? 'P5 • Utama'
-                                  : goal.priority == 4
-                                      ? 'P4 • Tinggi'
-                                      : goal.priority == 3
-                                          ? 'P3 • Sedang'
-                                          : 'P${goal.priority} • Santai',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: goal.priority >= 4
-                                    ? AppColors.danger
-                                    : AppColors.primary,
-                              ),
+                                  ? AppColors.danger
+                                  : AppColors.primary,
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(goal.targetDate, style: AppTypography.caption),
-                    ],
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceFieldFill,
-                  borderRadius: BorderRadius.circular(100),
-                ),
-                child: Text(
-                  '$percent%',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => _confirmDeleteGoal(context, goal),
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceFieldFill,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Icon(
-                      PhosphorIcons.trash(),
-                      size: 14,
-                      color: AppColors.expenseRed,
+                        ),
+                      ],
                     ),
-                  ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Icon(
+                          PhosphorIcons.calendar(PhosphorIconsStyle.bold),
+                          size: 13,
+                          color: AppColors.textSecondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Target tercapai: ${goal.targetDate}',
+                          style: AppTypography.captionText.copyWith(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
+              ),
+              PopupMenuButton<String>(
+                icon: Icon(
+                  PhosphorIcons.dotsThreeVertical(PhosphorIconsStyle.bold),
+                  size: 18,
+                  color: AppColors.textSecondary,
+                ),
+                onSelected: (val) {
+                  if (val == 'delete') {
+                    _confirmDeleteGoal(context, goal);
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Text('Hapus Target', style: TextStyle(color: Colors.red)),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+
+          // Progress Bar
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                CurrencyFormatter.format(goal.current),
-                style: AppTypography.sectionLabel.copyWith(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                'Terkumpul: $percent%',
+                style: AppTypography.captionText.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
                 ),
               ),
               Text(
-                'dari ${CurrencyFormatter.format(goal.target)}',
-                style: AppTypography.caption,
+                remaining > 0
+                    ? 'Sisa kurang ${CurrencyFormatter.format(remaining)}'
+                    : 'Target tercapai 🎉',
+                style: AppTypography.captionText.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           ClipRRect(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: progress.clamp(0.0, 1.0),
-              minHeight: 7,
-              backgroundColor: Colors.black.withValues(alpha: 0.06),
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                AppColors.primaryDark,
-              ),
+              minHeight: 6,
+              backgroundColor: AppColors.surfaceFieldFill,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
             ),
           ),
-          const SizedBox(height: 16),
-          AppButton(
-            label: 'Masukin Tabungan',
-            variant: AppButtonVariant.secondary,
-            onPressed: () => _showContributionSheet(
-              context,
-              goalId: goal.id,
-              title: goal.title,
-              currentAmount: goal.current,
-              targetAmount: goal.target,
+          const SizedBox(height: 14),
+
+          // Nominal Breakdown
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceFieldFill,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Terkumpul Saat Ini',
+                      style: AppTypography.captionText.copyWith(fontSize: 11),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      CurrencyFormatter.format(goal.current),
+                      style: AppTypography.itemTitle.copyWith(fontSize: 14),
+                    ),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Target Dana',
+                      style: AppTypography.captionText.copyWith(fontSize: 11),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      CurrencyFormatter.format(goal.target),
+                      style: AppTypography.itemTitle.copyWith(
+                        fontSize: 14,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Action Button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _showContributionSheet(
+                context,
+                goalId: goal.id,
+                title: goal.title,
+                currentAmount: goal.current,
+                targetAmount: goal.target,
+              ),
+              icon: Icon(
+                PhosphorIcons.plusCircle(PhosphorIconsStyle.bold),
+                size: 16,
+              ),
+              label: const Text('Masukin Tabungan'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryLight,
+                foregroundColor: AppColors.primaryDark,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
             ),
           ),
         ],
