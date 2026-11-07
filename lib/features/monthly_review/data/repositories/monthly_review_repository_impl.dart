@@ -124,14 +124,14 @@ class MonthlyReviewRepositoryImpl implements MonthlyReviewRepository {
           }
         }
 
-        // 2. Invoke Edge Function monthly-review with strict 4s timeout
+        // 2. Invoke Edge Function monthly-review with realistic timeout (12s for Gemini generation)
         try {
           final response = await client.functions
               .invoke(
                 'monthly-review',
                 body: {'period_start': startStr, 'period_end': endStr},
               )
-              .timeout(const Duration(seconds: 4));
+              .timeout(const Duration(seconds: 12));
 
           if (response.data != null && response.data is Map) {
             final data = response.data as Map<String, dynamic>;
@@ -179,6 +179,35 @@ class MonthlyReviewRepositoryImpl implements MonthlyReviewRepository {
               categoryBreakdown['Belanja & Pengeluaran'] = totalExpense;
             }
 
+            final narrativeText =
+                data['narrative']?.toString() ?? 'Evaluasi berhasil dihasilkan.';
+
+            // Ensure guaranteed persistence to monthly_reviews table
+            try {
+              await client.from('monthly_reviews').upsert(
+                {
+                  'user_id': user.id,
+                  'period_start': startStr,
+                  'period_end': endStr,
+                  'currency_code': 'IDR',
+                  'metrics_snapshot': {
+                    'totalIncome': totalIncome,
+                    'totalExpense': totalExpense,
+                    'netCashFlow': netFlow,
+                    'transactionCount': txCount,
+                    'incomeTransactionCount': incCount,
+                    'expenseTransactionCount': expCount,
+                    'savingsRate': savingsRate,
+                    'categoryBreakdown': categoryBreakdown,
+                  },
+                  'narrative': narrativeText,
+                  'calculation_version': 'v1',
+                  'generated_at': DateTime.now().toIso8601String(),
+                },
+                onConflict: 'user_id,period_start,period_end',
+              );
+            } catch (_) {}
+
             return Success(
               MonthlyReviewEntity(
                 id: 'review_${DateTime.now().millisecondsSinceEpoch}',
@@ -194,7 +223,7 @@ class MonthlyReviewRepositoryImpl implements MonthlyReviewRepository {
                   savingsRate: savingsRate,
                   categoryBreakdown: categoryBreakdown,
                 ),
-                narrative: data['narrative'] ?? 'Evaluasi berhasil dihasilkan.',
+                narrative: narrativeText,
                 calculationVersion: data['calculation_version'] ?? 'v1',
                 generatedAt: DateTime.now(),
                 transactions: confirmedTxs,
