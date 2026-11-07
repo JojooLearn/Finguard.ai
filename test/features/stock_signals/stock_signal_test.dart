@@ -14,7 +14,10 @@ class MockStockSignalRemoteDataSource implements StockSignalRemoteDataSource {
   List<StockSignalModel> signals = [];
 
   @override
-  Future<List<StockSignalModel>> getLatestSignals({int limit = 10}) async {
+  Future<List<StockSignalModel>> getLatestSignals({
+    int limit = 10,
+    bool forceRefresh = false,
+  }) async {
     if (shouldThrow) throw Exception('Network timeout error');
     return signals;
   }

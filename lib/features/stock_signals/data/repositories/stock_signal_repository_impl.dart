@@ -11,9 +11,15 @@ class StockSignalRepositoryImpl implements StockSignalRepository {
   StockSignalRepositoryImpl(this.remoteDataSource);
 
   @override
-  Future<Result<List<StockSignal>>> getLatestSignals({int limit = 10}) async {
+  Future<Result<List<StockSignal>>> getLatestSignals({
+    int limit = 10,
+    bool forceRefresh = false,
+  }) async {
     try {
-      final models = await remoteDataSource.getLatestSignals(limit: limit);
+      final models = await remoteDataSource.getLatestSignals(
+        limit: limit,
+        forceRefresh: forceRefresh,
+      );
       return Success(models);
     } catch (e) {
       return ErrorResult(

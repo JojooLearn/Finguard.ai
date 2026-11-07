@@ -8,9 +8,12 @@ class StockSignalListCubit extends Cubit<StockSignalListState> {
   StockSignalListCubit(this.getLatestSignals)
       : super(const StockSignalInitial());
 
-  Future<void> loadSignals({int limit = 10}) async {
+  Future<void> loadSignals({int limit = 10, bool forceRefresh = false}) async {
     emit(const StockSignalLoading());
-    final result = await getLatestSignals(limit: limit);
+    final result = await getLatestSignals(
+      limit: limit,
+      forceRefresh: forceRefresh,
+    );
 
     result.fold(
       (signals) => emit(StockSignalLoaded(signals)),
@@ -18,6 +21,6 @@ class StockSignalListCubit extends Cubit<StockSignalListState> {
     );
   }
 
-  Future<void> refresh() => loadSignals();
+  Future<void> refresh() => loadSignals(forceRefresh: true);
 }
 
