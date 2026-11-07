@@ -484,25 +484,9 @@ class _ActiveDebtsView extends StatelessWidget {
                     const SizedBox(height: 20),
 
                     // Section: Cicilan Aktif
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Cicilan Berjalan (${activeDebts.length})',
-                          style: AppTypography.sectionLabel.copyWith(fontSize: 15),
-                        ),
-                        GestureDetector(
-                          onTap: () => _showAddDebtSheet(context),
-                          child: Text(
-                            '+ Tambah Baru',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      'Cicilan Berjalan (${activeDebts.length})',
+                      style: AppTypography.sectionLabel.copyWith(fontSize: 15),
                     ),
                     const SizedBox(height: 12),
 

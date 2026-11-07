@@ -765,28 +765,9 @@ class _GoalsPageState extends State<GoalsPage> {
                     const SizedBox(height: 20),
 
                     // Section: Target Impian Lainnya
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Target Impian (${displayGoals.length - 1})',
-                          style: AppTypography.sectionLabel.copyWith(fontSize: 15),
-                        ),
-                        GestureDetector(
-                          onTap: () => _showAddGoalDialog(
-                            context,
-                            hasEmergencyFund: hasEmergencyFund,
-                          ),
-                          child: Text(
-                            '+ Tambah Baru',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      'Target Impian (${displayGoals.length - 1})',
+                      style: AppTypography.sectionLabel.copyWith(fontSize: 15),
                     ),
                     const SizedBox(height: 12),
 
@@ -794,8 +775,8 @@ class _GoalsPageState extends State<GoalsPage> {
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(
-                          vertical: 24,
-                          horizontal: 18,
+                          vertical: 36,
+                          horizontal: 20,
                         ),
                         decoration: BoxDecoration(
                           color: AppColors.surfaceCard,
@@ -805,19 +786,29 @@ class _GoalsPageState extends State<GoalsPage> {
                         ),
                         child: Column(
                           children: [
-                            Icon(
-                              PhosphorIcons.sparkle(PhosphorIconsStyle.bold),
-                              color: AppColors.primary,
-                              size: 26,
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryLight,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  PhosphorIcons.sparkle(PhosphorIconsStyle.fill),
+                                  color: AppColors.primary,
+                                  size: 28,
+                                ),
+                              ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 14),
                             Text(
-                              'Belum Ada Target Tambahan',
-                              style: AppTypography.itemTitle.copyWith(fontSize: 14),
+                              'Belum Ada Target Impian Lain',
+                              style: AppTypography.itemTitle.copyWith(fontSize: 16),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 6),
                             Text(
-                              'Tambahkan impian seperti gadget baru, liburan, atau kendaraan.',
+                              'Tambahkan target impian baru seperti gadget, liburan, atau kendaraan untuk mulai menabung.',
                               textAlign: TextAlign.center,
                               style: AppTypography.caption,
                             ),
@@ -982,8 +973,8 @@ class _GoalsPageState extends State<GoalsPage> {
                 ),
               ),
               isTargetReached
-                  ? StatusChip.aman('Tercapai $percent%')
-                  : StatusChip.perhatian('$percent% dari Target'),
+                  ? StatusChip.aman('Tercapai 100%')
+                  : StatusChip.aman('$percent% dari Target'),
             ],
           ),
           const SizedBox(height: 8),
@@ -1065,8 +1056,7 @@ class _GoalsPageState extends State<GoalsPage> {
           const SizedBox(height: 14),
 
           // Action Button: "Masukin Tabungan"
-          SizedBox(
-            width: double.infinity,
+          Center(
             child: ElevatedButton.icon(
               onPressed: () => _showContributionSheet(
                 context,
@@ -1086,9 +1076,12 @@ class _GoalsPageState extends State<GoalsPage> {
                 foregroundColor: AppColors.primaryDark,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusPill),
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 10,
+                ),
                 textStyle: const TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 13,

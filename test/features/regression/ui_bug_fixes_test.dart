@@ -70,7 +70,7 @@ void main() {
       await tester.tap(find.text('BBCA'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Buka Grafik Realtime di TradingView'), findsOneWidget);
+      expect(find.text('TradingView'), findsOneWidget);
       expect(find.text('Support'), findsOneWidget);
       expect(find.text('Pivot Sinyal'), findsOneWidget);
       expect(find.text('Resistance'), findsOneWidget);

@@ -532,6 +532,7 @@ class _HomePageState extends State<HomePage> {
                     List<TransactionEntity> expTxs = [];
                     double mInc = 0.0;
                     double mExp = 0.0;
+                    bool hasMonthCashflow = false;
                     if (txState is TransactionLoaded) {
                       final monthTxs = txState.transactions.where((t) {
                         return t.transactionDate.year == _selectedMonth.year &&
@@ -552,6 +553,7 @@ class _HomePageState extends State<HomePage> {
                       mInc = incTxs.fold(0.0, (s, t) => s + t.amount);
                       mExp = expTxs.fold(0.0, (s, t) => s + t.amount);
                       final mNet = mInc - mExp;
+                      hasMonthCashflow = mInc > 0 || mExp > 0;
 
                       cashFlowText = CurrencyFormatter.formatSigned(
                         mNet,
@@ -634,26 +636,44 @@ class _HomePageState extends State<HomePage> {
                                 );
                               }
 
-                              budgetVal = CurrencyFormatter.format(
-                                topBudget.spentAmount,
-                              );
-                              budgetCap =
-                                  'Sisa jatah: ${CurrencyFormatter.format(topBudget.remainingAmount)}';
-                              budgetProgress = topBudget.usagePercentage.clamp(
-                                0.0,
-                                1.0,
-                              );
-
-                              if (topBudget.isExceeded) {
-                                budgetChip = StatusChip.melebihi('Jebol');
-                                budgetProgressColor = AppColors.expenseRed;
-                              } else if (topBudget.usagePercentage >= 0.85) {
-                                budgetChip = StatusChip.hampirHabis('Menipis');
-                                budgetProgressColor = AppColors.warningOrange;
+                              if (!hasMonthCashflow) {
+                                budgetVal = 'Rp0';
+                                budgetCap = 'Tidak ada transaksi';
+                                budgetProgress = 0.0;
+                                budgetChip = const StatusChip(
+                                  label: '-',
+                                  type: StatusType.neutral,
+                                );
                               } else {
-                                budgetChip = StatusChip.aman('Aman');
-                                budgetProgressColor = AppColors.primaryLime;
+                                budgetVal = CurrencyFormatter.format(
+                                  topBudget.spentAmount,
+                                );
+                                budgetCap =
+                                    'Sisa jatah: ${CurrencyFormatter.format(topBudget.remainingAmount)}';
+                                budgetProgress = topBudget.usagePercentage.clamp(
+                                  0.0,
+                                  1.0,
+                                );
+
+                                if (topBudget.isExceeded) {
+                                  budgetChip = StatusChip.melebihi('Jebol');
+                                  budgetProgressColor = AppColors.expenseRed;
+                                } else if (topBudget.usagePercentage >= 0.85) {
+                                  budgetChip = StatusChip.hampirHabis('Menipis');
+                                  budgetProgressColor = AppColors.warningOrange;
+                                } else {
+                                  budgetChip = StatusChip.aman('Aman');
+                                  budgetProgressColor = AppColors.primaryLime;
+                                }
                               }
+                            } else if (!hasMonthCashflow) {
+                              budgetVal = 'Rp0';
+                              budgetCap = 'Tidak ada transaksi';
+                              budgetProgress = 0.0;
+                              budgetChip = const StatusChip(
+                                label: '-',
+                                type: StatusType.neutral,
+                              );
                             }
 
                             return BlocBuilder<GoalCubit, GoalState>(
@@ -702,44 +722,32 @@ class _HomePageState extends State<HomePage> {
                                   }
                                 }
 
-                                // Month-sensitive savings & target calculation
-                                final profileState =
-                                    context.read<ProfileCubit>().state;
-                                final profIncome = profileState is ProfileLoaded
-                                    ? profileState.profile.monthlyIncome
-                                    : 0.0;
-                                final monthInc = mInc > 0
-                                    ? mInc
-                                    : (isCurrentMonth ? profIncome : 0.0);
-                                final monthTarget =
-                                    (monthInc * 0.20).roundToDouble();
-
                                 double effectiveSaved = 0.0;
-                                if (isCurrentMonth &&
-                                    topGoal != null &&
-                                    topGoal.currentAmount > 0) {
-                                  effectiveSaved = topGoal.currentAmount;
+                                final double targetAmt =
+                                    topGoal?.targetAmount ?? 0.0;
+
+                                if (!hasMonthCashflow) {
+                                  effectiveSaved = 0.0;
+                                  goalVal = 'Rp0';
+                                  goalCap = 'Target: Rp0';
+                                  goalProgress = 0.0;
                                 } else {
-                                  effectiveSaved = (mInc - mExp)
-                                      .clamp(0.0, double.infinity);
+                                  effectiveSaved =
+                                      topGoal?.currentAmount ?? 0.0;
+                                  goalVal =
+                                      CurrencyFormatter.format(effectiveSaved);
+                                  goalCap = targetAmt > 0
+                                      ? 'Target: ${CurrencyFormatter.formatCompact(targetAmt)}'
+                                      : (topGoal != null
+                                          ? 'Target: Belum diatur'
+                                          : 'Buat celenganmu');
+                                  goalProgress = targetAmt > 0
+                                      ? (effectiveSaved / targetAmt)
+                                          .clamp(0.0, 1.0)
+                                      : 0.0;
                                 }
 
-                                goalVal =
-                                    CurrencyFormatter.format(effectiveSaved);
-                                goalCap = monthTarget > 0
-                                    ? 'Target: ${CurrencyFormatter.formatCompact(monthTarget)}'
-                                    : (topGoal != null && topGoal.targetAmount > 0
-                                        ? 'Target: ${CurrencyFormatter.formatCompact(topGoal.targetAmount)}'
-                                        : 'Target: Belum diatur');
-
-                                final effectiveTarget = monthTarget > 0
-                                    ? monthTarget
-                                    : (topGoal != null && topGoal.targetAmount > 0
-                                        ? topGoal.targetAmount
-                                        : 1.0);
-                                final pct = (effectiveSaved / effectiveTarget)
-                                    .clamp(0.0, 1.0);
-                                goalProgress = pct;
+                                final pct = goalProgress;
                                 goalChip = Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,
@@ -890,10 +898,14 @@ class _HomePageState extends State<HomePage> {
                                               progress: budgetProgress,
                                               progressColor:
                                                   budgetProgressColor,
-                                              infoExplanation: topBudget != null
+                                              infoExplanation: !hasMonthCashflow
+                                                   ? 'Tidak ada transaksi belanja tercatat pada $currentPeriodLabel.'
+                                                   : topBudget != null
                                                   ? 'Jatah belanja untuk kategori "$budgetLabel" dialokasikan sebesar ${CurrencyFormatter.format(topBudget.limitAmount)}. Hingga saat ini telah terpakai ${CurrencyFormatter.format(topBudget.spentAmount)} (${(topBudget.usagePercentage * 100).round()}%). ${topBudget.isExceeded ? 'Pengeluaran telah melebihi batas jatah sebesar ${CurrencyFormatter.format(topBudget.spentAmount - topBudget.limitAmount)}.' : 'Sisa jatah aman yang masih bisa kamu belanjakan adalah ${CurrencyFormatter.format(topBudget.remainingAmount)}.'}'
                                                   : 'Belum ada jatah belanja yang aktif untuk bulan ini. Buka menu Anggaran untuk membagi batas belanja per kategori.',
-                                              infoFormula: topBudget != null
+                                              infoFormula: !hasMonthCashflow
+                                                   ? 'Tidak Ada Transaksi'
+                                                   : topBudget != null
                                                   ? '${CurrencyFormatter.format(topBudget.limitAmount)} (Jatah) - ${CurrencyFormatter.format(topBudget.spentAmount)} (Terpakai) = ${CurrencyFormatter.format(topBudget.remainingAmount)} (Sisa)'
                                                   : 'Batas Belanja - Belanja Terpakai',
                                               infoTip: topBudget != null && topBudget.isExceeded
@@ -917,13 +929,16 @@ class _HomePageState extends State<HomePage> {
                                               progress: goalProgress,
                                               progressColor:
                                                   AppColors.primaryDark,
-                                              infoExplanation:
-                                                   'Alokasi target tabungan untuk $currentPeriodLabel adalah ${CurrencyFormatter.format(monthTarget)} (20% dari pemasukan).${topGoal != null ? '\n\nTotal celengan "${topGoal.name}" yang terkumpul saat ini sebesar ${CurrencyFormatter.format(topGoal.currentAmount)} dari total target impian ${CurrencyFormatter.format(topGoal.targetAmount)}.' : ''}',
-                                               infoFormula: monthTarget > 0
-                                                   ? 'Terkumpul ${CurrencyFormatter.format(effectiveSaved)} / Target ${CurrencyFormatter.format(monthTarget)} (${(pct * 100).round()}%)'
-                                                   : (topGoal != null
-                                                       ? 'Terkumpul ${CurrencyFormatter.format(topGoal.currentAmount)} / Target ${CurrencyFormatter.format(topGoal.targetAmount)}'
-                                                       : 'Target Tabungan: Belum Diatur'),
+                                              infoExplanation: !hasMonthCashflow
+                                                  ? 'Tidak ada aktivitas keuangan atau alokasi tabungan tercatat pada $currentPeriodLabel.'
+                                                  : (topGoal != null
+                                                      ? 'Target celengan "${topGoal.name}" sebesar ${CurrencyFormatter.format(topGoal.targetAmount)}. Saat ini telah terkumpul ${CurrencyFormatter.format(effectiveSaved)} (${(pct * 100).round()}%).'
+                                                      : 'Belum ada target tabungan yang diatur.'),
+                                              infoFormula: !hasMonthCashflow
+                                                  ? 'Tidak Ada Alokasi'
+                                                  : (targetAmt > 0
+                                                      ? 'Terkumpul ${CurrencyFormatter.format(effectiveSaved)} / Target ${CurrencyFormatter.format(targetAmt)} (${(pct * 100).round()}%)'
+                                                      : 'Target Tabungan: Belum Diatur'),
                                                infoTip:
                                                   'Setor sisa uang dingin setiap akhir bulan ke celengan ini agar target cepat tercapai.',
                                               onTap: null,
