@@ -261,6 +261,48 @@ class BudgetRepositoryImpl implements BudgetRepository {
               periodStart: periodStart,
               periodEnd: periodEnd,
             );
+
+            // Re-fetch newly created budgets with period-accurate spent amounts
+            try {
+              final newRes = await client
+                  .from('budgets')
+                  .select('*, categories(name)')
+                  .eq('user_id', user.id)
+                  .lte('period_start', endStr)
+                  .gte('period_end', startStr);
+              final createdBudgets = (newRes as List).map((json) {
+                final catId = json['category_id'] as String;
+                final cat = json['categories'];
+                String? cName;
+                if (cat is Map) cName = cat['name'] as String?;
+                final canonicalName = _canonicalDisplayName(cName);
+                final normKey = _normalizeCategoryKey(canonicalName);
+                final spentById = categorySpentById[catId] ?? 0.0;
+                final spentByName = categorySpentByNameKey[normKey] ?? 0.0;
+                final effectiveSpent =
+                    spentByName > spentById ? spentByName : spentById;
+
+                return BudgetEntity(
+                  id: json['id'],
+                  userId: json['user_id'],
+                  categoryId: catId,
+                  categoryName: canonicalName,
+                  periodStart: DateTime.parse(json['period_start']),
+                  periodEnd: DateTime.parse(json['period_end']),
+                  limitAmount: (json['limit_amount'] as num).toDouble(),
+                  spentAmount: effectiveSpent,
+                  currencyCode: json['currency_code'] ?? 'IDR',
+                  createdAt: DateTime.parse(json['created_at']).toLocal(),
+                  updatedAt: DateTime.parse(json['updated_at']).toLocal(),
+                );
+              }).toList();
+
+              if (createdBudgets.isNotEmpty) {
+                _localBudgets.clear();
+                _localBudgets.addAll(createdBudgets);
+                return Success(createdBudgets);
+              }
+            } catch (_) {}
           }
 
           if (_localBudgets.isNotEmpty) {
@@ -291,10 +333,12 @@ class BudgetRepositoryImpl implements BudgetRepository {
     }
     final targetKey = _normalizeCategoryKey(humanName);
 
-    // Update local store (match by categoryId or normalized category name)
+    // Update local store (match by categoryId or normalized category name AND period)
     final index = _localBudgets.indexWhere((b) =>
-        b.categoryId == categoryId ||
-        _normalizeCategoryKey(b.categoryName) == targetKey);
+        (b.categoryId == categoryId ||
+            _normalizeCategoryKey(b.categoryName) == targetKey) &&
+        b.periodStart.year == periodStart.year &&
+        b.periodStart.month == periodStart.month);
 
     BudgetEntity updatedEntity;
     if (index != -1) {

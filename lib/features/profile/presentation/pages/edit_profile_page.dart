@@ -11,6 +11,7 @@ import '../cubit/profile_state.dart';
 import '../../../budgets/presentation/cubit/budget_cubit.dart';
 import '../../../goals/presentation/cubit/goal_cubit.dart';
 import '../../../transactions/presentation/cubit/transaction_cubit.dart';
+import '../../../debts/presentation/pages/active_debts_page.dart';
 
 class EditProfilePage extends StatefulWidget {
   const EditProfilePage({super.key});
@@ -184,7 +185,36 @@ class _EditProfilePageState extends State<EditProfilePage> {
                         _formatCurrencyInput(_incomeController, val),
                   ),
                   const SizedBox(height: 14),
-                  _buildFieldLabel('Total Cicilan / Utang Bulanan (Jika ada)'),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildFieldLabel('Total Cicilan Bulanan'),
+                      GestureDetector(
+                        onTap: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ActiveDebtsPage(),
+                            ),
+                          );
+                          if (context.mounted) {
+                            setState(() {
+                              _initialized = false;
+                            });
+                            context.read<ProfileCubit>().loadProfile();
+                          }
+                        },
+                        child: Text(
+                          'Kelola Detail Cicilan →',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   _buildBorderlessField(
                     controller: _debtController,

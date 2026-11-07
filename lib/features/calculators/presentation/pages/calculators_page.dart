@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
@@ -10,11 +9,6 @@ import '../../../../core/utils/financial_calculator.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/explanation_sheet.dart';
 import '../../../../core/widgets/status_chip.dart';
-import '../../../goals/domain/entities/goal_entity.dart';
-import '../../../goals/presentation/cubit/goal_cubit.dart';
-import '../../../goals/presentation/cubit/goal_state.dart';
-import '../../../profile/presentation/cubit/profile_cubit.dart';
-import '../../../profile/presentation/cubit/profile_state.dart';
 
 class CalculatorsPage extends StatefulWidget {
   const CalculatorsPage({super.key});
@@ -37,8 +31,8 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
   // Compound Growth
   final _principalController = TextEditingController();
   final _monthlyContribController = TextEditingController();
-  final _rateController = TextEditingController(text: '7');
-  final _yearsController = TextEditingController(text: '5');
+  final _rateController = TextEditingController();
+  final _yearsController = TextEditingController();
   double? _compoundResult;
 
   // Debt Ratio
@@ -54,55 +48,6 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
 
   void _populateFromUserContext() {
     if (_dataInitialized) return;
-
-    final profileState = context.read<ProfileCubit>().state;
-    final goalState = context.read<GoalCubit>().state;
-
-    double income = 1000000;
-    double essential = 500000;
-    double debt = 0;
-    double currentEmergency = 0;
-
-    if (profileState is ProfileLoaded) {
-      final p = profileState.profile;
-      if (p.monthlyIncome > 0) {
-        income = p.monthlyIncome;
-        essential =
-            p.essentialExpenses > 0 ? p.essentialExpenses : (income * 0.50);
-        debt = p.monthlyDebt;
-      }
-    }
-
-    if (goalState is GoalLoaded) {
-      final emGoal = goalState.goals
-          .where((g) =>
-              g.goalType == GoalType.emergencyFund ||
-              g.name.toLowerCase().contains('darurat'))
-          .firstOrNull;
-      if (emGoal != null) {
-        currentEmergency = emGoal.currentAmount;
-      }
-    }
-
-    final savingsAlloc = (income * 0.20).roundToDouble();
-
-    _expenseController.text = CurrencyInputFormatter.format(essential);
-    _contributionController.text = CurrencyInputFormatter.format(savingsAlloc);
-    _currentFundController.text =
-        CurrencyInputFormatter.format(currentEmergency);
-
-    _debtIncomeController.text = CurrencyInputFormatter.format(income);
-    _debtPaymentController.text = CurrencyInputFormatter.format(debt);
-
-    _monthlyContribController.text =
-        CurrencyInputFormatter.format(savingsAlloc);
-    _principalController.text = CurrencyInputFormatter.format(
-        currentEmergency > 0 ? currentEmergency : savingsAlloc * 2);
-
-    _calcEmergency();
-    _calcCompound();
-    _calcDebt();
-
     _dataInitialized = true;
   }
 
@@ -305,6 +250,7 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
                 'Kebutuhan pokok per bulan',
                 _expenseController,
                 prefix: 'Rp ',
+                hintText: 'Misal: 3.000.000',
                 isCurrency: true,
               ),
               const SizedBox(height: 14),
@@ -352,6 +298,7 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
                 'Dana darurat saat ini',
                 _currentFundController,
                 prefix: 'Rp ',
+                hintText: 'Misal: 0',
                 isCurrency: true,
               ),
               const SizedBox(height: 14),
@@ -359,6 +306,7 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
                 'Alokasi tabungan per bulan',
                 _contributionController,
                 prefix: 'Rp ',
+                hintText: 'Misal: 500.000',
                 isCurrency: true,
               ),
               const SizedBox(height: 18),
@@ -549,6 +497,7 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
                 'Modal awal',
                 _principalController,
                 prefix: 'Rp ',
+                hintText: 'Misal: 1.000.000',
                 isCurrency: true,
               ),
               const SizedBox(height: 12),
@@ -556,18 +505,21 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
                 'Setoran per bulan',
                 _monthlyContribController,
                 prefix: 'Rp ',
+                hintText: 'Misal: 500.000',
                 isCurrency: true,
               ),
               const SizedBox(height: 12),
               _buildInputRow(
                 'Perkiraan imbal hasil per tahun (%)',
                 _rateController,
+                hintText: 'Misal: 7',
                 isCurrency: false,
               ),
               const SizedBox(height: 12),
               _buildInputRow(
                 'Durasi menabung (tahun)',
                 _yearsController,
+                hintText: 'Misal: 5',
                 isCurrency: false,
               ),
               const SizedBox(height: 18),
@@ -683,6 +635,7 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
                 'Pemasukan bersih sebulan',
                 _debtIncomeController,
                 prefix: 'Rp ',
+                hintText: 'Misal: 5.000.000',
                 isCurrency: true,
               ),
               const SizedBox(height: 12),
@@ -690,6 +643,7 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
                 'Total cicilan atau utang bulanan',
                 _debtPaymentController,
                 prefix: 'Rp ',
+                hintText: 'Misal: 1.000.000',
                 isCurrency: true,
               ),
               const SizedBox(height: 18),
@@ -745,6 +699,7 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
     String label,
     TextEditingController controller, {
     String? prefix,
+    String? hintText,
     bool isCurrency = false,
   }) {
     return Column(
@@ -758,6 +713,10 @@ class _CalculatorsPageState extends State<CalculatorsPage> {
           inputFormatters: isCurrency ? [CurrencyInputFormatter()] : null,
           style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
           decoration: InputDecoration(
+            hintText: hintText,
+            hintStyle: AppTypography.bodySecondary.copyWith(
+              color: AppColors.textPlaceholder,
+            ),
             prefixText: prefix,
             prefixStyle: prefix != null
                 ? AppTypography.body.copyWith(

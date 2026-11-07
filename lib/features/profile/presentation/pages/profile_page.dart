@@ -11,6 +11,7 @@ import '../cubit/profile_cubit.dart';
 import '../cubit/profile_state.dart';
 import '../cubit/user_preferences_cubit.dart';
 import '../cubit/user_preferences_state.dart';
+import '../../../debts/presentation/pages/active_debts_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -401,6 +402,23 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: 'Target Tabungan (Celengan)',
                   subtitle: 'Pantau celengan dana darurat & tujuan impian',
                   onTap: () => context.push('/goals'),
+                ),
+                _buildDivider(),
+                _buildRowItem(
+                  icon: PhosphorIcons.creditCard(),
+                  title: 'Manajemen Cicilan Aktif',
+                  subtitle: 'Pantau sisa tenor, jatuh tempo & bayar cicilan',
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ActiveDebtsPage(),
+                      ),
+                    );
+                    if (context.mounted) {
+                      context.read<ProfileCubit>().loadProfile();
+                    }
+                  },
                 ),
               ]),
 

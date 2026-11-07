@@ -18,6 +18,9 @@ import '../../features/budgets/presentation/cubit/budget_cubit.dart';
 import '../../features/goals/data/repositories/goal_repository_impl.dart';
 import '../../features/goals/domain/repositories/goal_repository.dart';
 import '../../features/goals/presentation/cubit/goal_cubit.dart';
+import '../../features/debts/domain/repositories/debt_repository.dart';
+import '../../features/debts/data/repositories/debt_repository_impl.dart';
+import '../../features/debts/presentation/cubit/debt_cubit.dart';
 import '../../features/coach/data/repositories/coach_repository_impl.dart';
 import '../../features/coach/domain/repositories/coach_repository.dart';
 import '../../features/coach/presentation/cubit/coach_cubit.dart';
@@ -103,6 +106,14 @@ Future<void> initDependencies() async {
   );
   sl.registerFactory<GoalCubit>(
     () => GoalCubit(goalRepository: sl<GoalRepository>()),
+  );
+
+  // Debts & Installments Tracker
+  sl.registerLazySingleton<DebtRepository>(
+    () => DebtRepositoryImpl(sl<SupabaseClient>()),
+  );
+  sl.registerFactory<DebtCubit>(
+    () => DebtCubit(repository: sl<DebtRepository>()),
   );
 
   // Coach AI

@@ -202,7 +202,8 @@ class GoalRepositoryImpl implements GoalRepository {
           'user_id': user.id,
           'goal_id': validGoalId,
           'amount': amount,
-          'notes': note,
+          'contribution_date': DateTime.now().toIso8601String().split('T')[0],
+          'note': note,
         });
 
         final goalData = await client

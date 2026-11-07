@@ -21,9 +21,8 @@ class PurchaseConsultationPage extends StatefulWidget {
 }
 
 class _PurchaseConsultationPageState extends State<PurchaseConsultationPage> {
-  final _itemController = TextEditingController(text: 'Headphone Wireless');
-  final _priceController =
-      TextEditingController(text: CurrencyInputFormatter.format(2500000));
+  final _itemController = TextEditingController();
+  final _priceController = TextEditingController();
   String _selectedCategory = 'Hiburan';
 
   static const List<String> _categories = [
@@ -44,6 +43,18 @@ class _PurchaseConsultationPageState extends State<PurchaseConsultationPage> {
 
   void _onAnalyze(BuildContext context) {
     final price = CurrencyInputFormatter.parse(_priceController.text);
+    if (_itemController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Masukkan nama barang yang ingin dibeli')),
+      );
+      return;
+    }
+    if (price <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Masukkan nominal harga barang terlebih dahulu')),
+      );
+      return;
+    }
     context.read<ConsultationCubit>().consultPurchase(
       itemName: _itemController.text.trim(),
       estimatedPrice: price,
@@ -141,6 +152,12 @@ class _PurchaseConsultationPageState extends State<PurchaseConsultationPage> {
                                 fontWeight: FontWeight.w700,
                               ),
                               decoration: InputDecoration(
+                                hintText: '2.500.000',
+                                hintStyle: AppTypography.bigNumber.copyWith(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textPlaceholder,
+                                ),
                                 prefixText: 'Rp ',
                                 prefixStyle: AppTypography.bigNumber.copyWith(
                                   fontSize: 22,

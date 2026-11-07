@@ -697,40 +697,69 @@ class _HomePageState extends State<HomePage> {
                                       PhosphorIconsStyle.fill,
                                     );
                                   }
-                                  goalVal = CurrencyFormatter.format(
-                                    topGoal.currentAmount,
-                                  );
-                                  goalCap =
-                                      'Target: ${CurrencyFormatter.formatCompact(topGoal.targetAmount)}';
-                                  final pct = topGoal.targetAmount > 0
-                                      ? (topGoal.currentAmount / topGoal.targetAmount)
-                                            .clamp(0.0, 1.0)
-                                      : 0.0;
-                                  goalProgress = pct;
-                                  goalChip = Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.08,
-                                      ),
-                                      borderRadius: BorderRadius.circular(
-                                        AppSpacing.radiusPill,
-                                      ),
-                                    ),
-                                    child: Text(
-                                      '${(pct * 100).round()}%',
-                                      style: AppTypography.smallCaption
-                                          .copyWith(
-                                            color: AppColors.primaryDark,
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 10,
-                                          ),
-                                    ),
-                                  );
                                 }
+
+                                // Month-sensitive savings & target calculation
+                                final profileState =
+                                    context.read<ProfileCubit>().state;
+                                final profIncome = profileState is ProfileLoaded
+                                    ? profileState.profile.monthlyIncome
+                                    : 0.0;
+                                final monthInc = mInc > 0
+                                    ? mInc
+                                    : (isCurrentMonth ? profIncome : 0.0);
+                                final monthTarget =
+                                    (monthInc * 0.20).roundToDouble();
+
+                                double effectiveSaved = 0.0;
+                                if (isCurrentMonth &&
+                                    topGoal != null &&
+                                    topGoal.currentAmount > 0) {
+                                  effectiveSaved = topGoal.currentAmount;
+                                } else {
+                                  effectiveSaved = (mInc - mExp)
+                                      .clamp(0.0, double.infinity);
+                                }
+
+                                goalVal =
+                                    CurrencyFormatter.format(effectiveSaved);
+                                goalCap = monthTarget > 0
+                                    ? 'Target: ${CurrencyFormatter.formatCompact(monthTarget)}'
+                                    : (topGoal != null && topGoal.targetAmount > 0
+                                        ? 'Target: ${CurrencyFormatter.formatCompact(topGoal.targetAmount)}'
+                                        : 'Target: Belum diatur');
+
+                                final effectiveTarget = monthTarget > 0
+                                    ? monthTarget
+                                    : (topGoal != null && topGoal.targetAmount > 0
+                                        ? topGoal.targetAmount
+                                        : 1.0);
+                                final pct = (effectiveSaved / effectiveTarget)
+                                    .clamp(0.0, 1.0);
+                                goalProgress = pct;
+                                goalChip = Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(
+                                      alpha: 0.08,
+                                    ),
+                                    borderRadius: BorderRadius.circular(
+                                      AppSpacing.radiusPill,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${(pct * 100).round()}%',
+                                    style: AppTypography.smallCaption
+                                        .copyWith(
+                                          color: AppColors.primaryDark,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 10,
+                                        ),
+                                  ),
+                                );
 
                                 return Column(
                                   mainAxisSize: MainAxisSize.min,
@@ -885,15 +914,14 @@ class _HomePageState extends State<HomePage> {
                                               progress: goalProgress,
                                               progressColor:
                                                   AppColors.primaryDark,
-                                              infoExplanation: topGoal != null
-                                                  ? (topGoal.goalType == GoalType.emergencyFund
-                                                      ? 'Celengan target "${topGoal.name}". Dana yang sudah terkumpul saat ini sebesar ${CurrencyFormatter.format(topGoal.currentAmount)} dari total target ${CurrencyFormatter.format(topGoal.targetAmount)}. Sisa kekurangan yang perlu dikumpulkan: ${CurrencyFormatter.format((topGoal.targetAmount - topGoal.currentAmount).clamp(0.0, double.infinity))}.'
-                                                      : 'Target tabungan untuk "${topGoal.name}". Dana terkumpul sebesar ${CurrencyFormatter.format(topGoal.currentAmount)} (${topGoal.targetAmount > 0 ? ((topGoal.currentAmount / topGoal.targetAmount) * 100).round() : 0}%). Sisa dana yang dibutuhkan untuk mencapai target: ${CurrencyFormatter.format((topGoal.targetAmount - topGoal.currentAmount).clamp(0.0, double.infinity))}.')
-                                                  : 'Kamu belum memiliki target tabungan atau dana darurat aktif. Buat celengan baru di menu Tabungan.',
-                                              infoFormula: topGoal != null
-                                                  ? 'Terkumpul ${CurrencyFormatter.format(topGoal.currentAmount)} / Target ${CurrencyFormatter.format(topGoal.targetAmount)} (${topGoal.targetAmount > 0 ? ((topGoal.currentAmount / topGoal.targetAmount) * 100).round() : 0}%)'
-                                                  : 'Target Tabungan: Belum Diatur',
-                                              infoTip:
+                                              infoExplanation:
+                                                   'Alokasi target tabungan untuk $currentPeriodLabel adalah ${CurrencyFormatter.format(monthTarget)} (20% dari pemasukan).${topGoal != null ? '\n\nTotal celengan "${topGoal.name}" yang terkumpul saat ini sebesar ${CurrencyFormatter.format(topGoal.currentAmount)} dari total target impian ${CurrencyFormatter.format(topGoal.targetAmount)}.' : ''}',
+                                               infoFormula: monthTarget > 0
+                                                   ? 'Terkumpul ${CurrencyFormatter.format(effectiveSaved)} / Target ${CurrencyFormatter.format(monthTarget)} (${(pct * 100).round()}%)'
+                                                   : (topGoal != null
+                                                       ? 'Terkumpul ${CurrencyFormatter.format(topGoal.currentAmount)} / Target ${CurrencyFormatter.format(topGoal.targetAmount)}'
+                                                       : 'Target Tabungan: Belum Diatur'),
+                                               infoTip:
                                                   'Setor sisa uang dingin setiap akhir bulan ke celengan ini agar target cepat tercapai.',
                                               onTap: null,
                                             ),

@@ -590,7 +590,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
               amount: emergencyTarget,
               icon: PhosphorIcons.shieldCheck(),
               badge: '3 Bulan',
-              highlight: true,
             ),
           ],
         ),
@@ -709,9 +708,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               margin: const EdgeInsets.only(bottom: 6),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
-                color: item.highlight
-                    ? AppColors.primaryLight
-                    : AppColors.surfaceFieldFill,
+                color: AppColors.surfaceFieldFill,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(
@@ -719,9 +716,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   Icon(
                     item.icon,
                     size: 15,
-                    color: item.highlight
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
+                    color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -732,12 +727,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
                             item.label,
                             style: AppTypography.captionText.copyWith(
                               fontSize: 12,
-                              color: item.highlight
-                                  ? AppColors.primaryDark
-                                  : AppColors.textPrimary,
-                              fontWeight: item.highlight
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w600,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -751,9 +742,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: item.highlight
-                                  ? AppColors.primary.withValues(alpha: 0.12)
-                                  : Colors.white,
+                              color: Colors.white,
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
@@ -761,9 +750,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
-                                color: item.highlight
-                                    ? AppColors.primary
-                                    : AppColors.textSecondary,
+                                color: AppColors.textSecondary,
                               ),
                             ),
                           ),
@@ -777,9 +764,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     style: AppTypography.captionText.copyWith(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      color: item.highlight
-                          ? AppColors.primary
-                          : AppColors.textPrimary,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ],
@@ -842,13 +827,11 @@ class _AllocationItem {
   final double amount;
   final IconData icon;
   final String? badge;
-  final bool highlight;
 
   const _AllocationItem({
     required this.label,
     required this.amount,
     required this.icon,
     this.badge,
-    this.highlight = false,
   });
 }

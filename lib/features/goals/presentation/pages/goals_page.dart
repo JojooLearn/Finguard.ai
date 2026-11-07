@@ -26,7 +26,7 @@ class _GoalsPageState extends State<GoalsPage> {
 
   void _showAddGoalDialog(BuildContext context, {bool hasEmergencyFund = false}) {
     final nameCtrl = TextEditingController();
-    final targetCtrl = TextEditingController(text: '1.000.000');
+    final targetCtrl = TextEditingController();
     final availableTypes = GoalType.values.where((t) {
       if (hasEmergencyFund && t == GoalType.emergencyFund) return false;
       return true;
