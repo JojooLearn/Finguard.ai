@@ -146,11 +146,11 @@ class VoiceIoService {
       onSoundLevelChange: onSoundLevelChange,
       listenOptions: SpeechListenOptions(
         localeId: effectiveLocale ?? 'id_ID',
-        listenMode: ListenMode.confirmation,
+        listenMode: ListenMode.dictation,
         partialResults: true,
         cancelOnError: false,
-        pauseFor: const Duration(seconds: 4),
-        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 8),
+        listenFor: const Duration(seconds: 45),
       ),
     );
     return true;

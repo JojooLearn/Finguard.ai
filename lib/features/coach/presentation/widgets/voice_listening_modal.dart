@@ -9,7 +9,7 @@ import '../../../../core/widgets/app_button.dart';
 import '../../domain/services/voice_io_service.dart';
 
 /// Modal bottom sheet popup that visually represents real-time listening
-/// with animated sound waves, mic pulsing orb, and live transcription.
+/// with authentic sound-reactive waves, mic pulsing orb, and live transcription.
 class VoiceListeningModal extends StatefulWidget {
   final VoiceIoService voiceIoService;
   final ValueChanged<String> onSend;
@@ -50,9 +50,7 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
   final TextEditingController _textEditingController = TextEditingController();
   double _soundLevel = 0.0;
   bool _isListening = false;
-  bool _isAutoSending = false;
   String? _statusMessage;
-  Timer? _autoSendTimer;
 
   @override
   void initState() {
@@ -66,12 +64,18 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
       if (mounted) setState(() {});
     });
 
-    _startListeningSession();
+    // Start listening gently after bottom-sheet slide animation settles
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          _startListeningSession();
+        }
+      });
+    });
   }
 
   @override
   void dispose() {
-    _autoSendTimer?.cancel();
     _waveController.dispose();
     _textEditingController.dispose();
     widget.voiceIoService.stopListening();
@@ -79,9 +83,6 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
   }
 
   Future<void> _startListeningSession() async {
-    _autoSendTimer?.cancel();
-    _isAutoSending = false;
-
     setState(() {
       _isListening = true;
       _statusMessage = 'Mendengarkan ucapanmu...';
@@ -96,22 +97,11 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
             TextPosition(offset: recognizedWords.length),
           );
         });
-
-        // Auto-send when final result is reached and not empty
-        if (isFinalResult && recognizedWords.trim().isNotEmpty && !_isAutoSending) {
-          _isAutoSending = true;
-          _autoSendTimer?.cancel();
-          _autoSendTimer = Timer(const Duration(milliseconds: 800), () {
-            if (mounted) {
-              _handleSend();
-            }
-          });
-        }
       },
       onSoundLevelChange: (level) {
         if (!mounted) return;
         setState(() {
-          // Normalize sound level
+          // Normalize sound level: quiet (< 0.05) vs active speech (0.1 - 1.0)
           _soundLevel = math.max(0.0, math.min(1.0, (level + 2.0) / 10.0));
         });
       },
@@ -120,8 +110,10 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
         if (status == 'notListening' || status == 'done') {
           setState(() {
             _isListening = false;
+            _soundLevel = 0.0;
             if (_textEditingController.text.trim().isEmpty) {
-              _statusMessage = 'Sesi dengar selesai. Ketuk mikrofon untuk mulai lagi.';
+              _statusMessage =
+                  'Sesi dengar selesai. Ketuk mikrofon atau tombol di bawah untuk mulai lagi.';
             }
           });
         } else if (status == 'listening') {
@@ -138,8 +130,9 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
         }
         setState(() {
           _isListening = false;
+          _soundLevel = 0.0;
           _statusMessage = errMsg.contains('no_match') || errMsg.contains('timeout')
-              ? 'Suara belum terdeteksi. Ketuk mikrofon dan bicara lebih dekat ya!'
+              ? 'Suara belum terdeteksi. Bicara lebih dekat ke mikrofon ya!'
               : 'Status suara: $errMsg';
         });
       },
@@ -148,6 +141,7 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
     if (!started && mounted) {
       setState(() {
         _isListening = false;
+        _soundLevel = 0.0;
         _statusMessage = 'Gagal memulai rekaman. Ketuk mikrofon untuk coba lagi.';
       });
     }
@@ -156,7 +150,10 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
   Future<void> _stopListeningSession() async {
     await widget.voiceIoService.stopListening();
     if (mounted) {
-      setState(() => _isListening = false);
+      setState(() {
+        _isListening = false;
+        _soundLevel = 0.0;
+      });
     }
   }
 
@@ -164,14 +161,12 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
     final textToSend = _textEditingController.text.trim();
     if (textToSend.isEmpty) return;
 
-    _autoSendTimer?.cancel();
     widget.voiceIoService.stopListening();
     Navigator.of(context).pop();
     widget.onSend(textToSend);
   }
 
   void _handleCancel() {
-    _autoSendTimer?.cancel();
     widget.voiceIoService.cancelListening();
     widget.onCancel();
   }
@@ -239,9 +234,7 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                     Text(
                       _isListening
                           ? 'Mendengarkan Suara...'
-                          : (_textEditingController.text.isNotEmpty
-                              ? 'Siap Dikirim'
-                              : 'Ketuk Mic untuk Bicara'),
+                          : (hasWords ? 'Siap Dikirim' : 'Mode Suara FinGuard'),
                       style: GoogleFonts.urbanist(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -277,7 +270,7 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
               builder: (context, child) {
                 final wavePhase = _waveController.value * 2 * math.pi;
                 final pulseScale = _isListening
-                    ? 1.0 + (math.sin(wavePhase) * 0.05) + (_soundLevel * 0.12)
+                    ? 1.0 + (math.sin(wavePhase) * 0.03) + (_soundLevel * 0.12)
                     : 1.0;
 
                 return Column(
@@ -328,19 +321,22 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     Text(
                       _isListening
-                          ? 'Ketuk untuk jeda'
-                          : 'Ketuk mikrofon untuk bicara',
+                          ? 'Mendengarkan... Ketuk mic untuk jeda'
+                          : (hasWords
+                              ? 'Selesai bicara. Ketuk mic untuk lanjut bicara'
+                              : 'Ketuk mikrofon untuk mulai bicara'),
                       style: GoogleFonts.urbanist(
-                        fontSize: 11.5,
-                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: _isListening ? AppColors.primary : AppColors.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 16),
 
-                    // Dynamic Waveform Bars
+                    // Dynamic Waveform Bars (Reacts authentically to actual sound level)
                     _buildWaveformBars(wavePhase),
                   ],
                 );
@@ -348,11 +344,11 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
             ),
             const SizedBox(height: 20),
 
-            // Live Transcription & Editable Text Card
+            // Live Dynamic Transcription Card
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              constraints: const BoxConstraints(minHeight: 84),
+              padding: const EdgeInsets.all(16),
+              constraints: const BoxConstraints(minHeight: 96),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(18),
@@ -367,34 +363,79 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Icon(
-                        hasWords
-                            ? PhosphorIcons.chatCircleDots(PhosphorIconsStyle.fill)
-                            : PhosphorIcons.info(PhosphorIconsStyle.bold),
-                        size: 15,
-                        color: hasWords ? AppColors.primary : AppColors.textSecondary,
+                      Row(
+                        children: [
+                          Icon(
+                            hasWords
+                                ? PhosphorIcons.chatCircleDots(PhosphorIconsStyle.fill)
+                                : (_isListening
+                                    ? PhosphorIcons.waveform(PhosphorIconsStyle.bold)
+                                    : PhosphorIcons.info(PhosphorIconsStyle.bold)),
+                            size: 16,
+                            color: hasWords || _isListening
+                                ? AppColors.primary
+                                : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            hasWords
+                                ? 'Teks Terdeteksi (bisa diedit):'
+                                : (_isListening
+                                    ? 'Mendengarkan...'
+                                    : 'Petunjuk:'),
+                            style: GoogleFonts.urbanist(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: hasWords || _isListening
+                                  ? AppColors.primary
+                                  : AppColors.textSecondary,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        hasWords ? 'Suara Terdeteksi (bisa diedit):' : 'Petunjuk:',
-                        style: GoogleFonts.urbanist(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: hasWords ? AppColors.primary : AppColors.textSecondary,
-                          letterSpacing: 0.2,
+                      if (_isListening && hasWords)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 5,
+                                height: 5,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Aktif mencatat',
+                                style: GoogleFonts.urbanist(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF10B981),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   if (hasWords) ...[
                     TextField(
                       controller: _textEditingController,
-                      maxLines: 3,
-                      minLines: 1,
+                      maxLines: 4,
+                      minLines: 2,
                       style: GoogleFonts.urbanist(
-                        fontSize: 15.5,
+                        fontSize: 16,
                         fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary,
                         height: 1.4,
@@ -405,33 +446,38 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
-                    if (_isAutoSending) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Mengirim otomatis...',
-                        style: GoogleFonts.urbanist(
-                          fontSize: 11,
-                          fontStyle: FontStyle.italic,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ],
                   ] else ...[
                     Text(
-                      _statusMessage ?? 'Bicara sekarang, misalnya:\n"Catat makan siang 35 ribu" atau "Analisa saham BBCA"',
+                      _isListening
+                          ? 'Silakan bicara sekarang... Ucapanmu akan langsung tertulis di sini.'
+                          : (_statusMessage ??
+                              'Ketuk tombol "Mulai Bicara" untuk merekam ucapanmu.'),
                       style: GoogleFonts.urbanist(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
+                        fontSize: 13.5,
+                        color: _isListening
+                            ? AppColors.primary
+                            : AppColors.textSecondary,
                         height: 1.45,
                       ),
                     ),
+                    if (_isListening) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Contoh: "Catat makan siang 35 ribu" atau "Analisa saham BBCA"',
+                        style: GoogleFonts.urbanist(
+                          fontSize: 11.5,
+                          fontStyle: FontStyle.italic,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),
             ),
             const SizedBox(height: 20),
 
-            // Action Buttons Row
+            // Action Buttons Row (Clear states: never awkwardly disabled)
             Row(
               children: [
                 TextButton(
@@ -452,16 +498,16 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                 Expanded(
                   child: AppButton(
                     label: hasWords
-                        ? 'Kirim Sekarang'
-                        : (_isListening ? 'Mendengarkan...' : 'Mulai Bicara'),
+                        ? 'Kirim Pesan'
+                        : (_isListening ? 'Selesai Bicara' : 'Mulai Bicara'),
                     onPressed: hasWords
                         ? _handleSend
-                        : (_isListening ? null : _startListeningSession),
+                        : (_isListening ? _stopListeningSession : _startListeningSession),
                     icon: Icon(
                       hasWords
                           ? Icons.arrow_upward_rounded
                           : (_isListening
-                              ? PhosphorIcons.waveform(PhosphorIconsStyle.bold)
+                              ? PhosphorIcons.stop(PhosphorIconsStyle.bold)
                               : PhosphorIcons.microphone(PhosphorIconsStyle.fill)),
                       color: Colors.white,
                       size: 18,
@@ -476,23 +522,32 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
     );
   }
 
-  /// 7 animated audio bars that fluctuate smoothly with sine math and sound level
+  /// 7 audio bars that react authentically to real mic sound level
   Widget _buildWaveformBars(double phase) {
     const barCount = 7;
-    const baseHeights = [10.0, 20.0, 32.0, 24.0, 36.0, 22.0, 12.0];
+    const baseWeights = [0.4, 0.7, 1.0, 0.85, 1.0, 0.65, 0.35];
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(barCount, (index) {
-        final offset = index * 0.6;
-        final sineVal = _isListening
-            ? (math.sin(phase + offset) + 1.0) / 2.0
-            : 0.1;
-        final dynamicBoost = _soundLevel * 30.0;
-        final barHeight = math.max(
-          6.0,
-          (baseHeights[index] * 0.35) + (sineVal * baseHeights[index] * 0.65) + dynamicBoost,
-        );
+        final weight = baseWeights[index];
+        final offset = index * 0.55;
+
+        double barHeight;
+        if (!_isListening) {
+          barHeight = 5.0;
+        } else if (_soundLevel < 0.05) {
+          // Resting breathing bar when mic is listening but user has not spoken yet
+          final breath = (math.sin(phase + offset) + 1.0) / 2.0;
+          barHeight = 6.0 + (breath * 3.0);
+        } else {
+          // Dynamic scaling with true audio volume
+          final soundWave = (math.sin(phase * 1.5 + offset) + 1.0) / 2.0;
+          barHeight = math.max(
+            7.0,
+            8.0 + (_soundLevel * 28.0 * weight) + (soundWave * _soundLevel * 8.0),
+          );
+        }
 
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 3.5),
@@ -504,14 +559,10 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: _isListening
-                  ? const [
-                      Color(0xFF8B5CF6),
-                      Color(0xFF6366F1),
-                    ]
-                  : [
-                      const Color(0xFFCBD5E1),
-                      const Color(0xFF94A3B8),
-                    ],
+                  ? (_soundLevel >= 0.05
+                      ? const [Color(0xFF8B5CF6), Color(0xFF6366F1)]
+                      : const [Color(0xFFA78BFA), Color(0xFF818CF8)])
+                  : const [Color(0xFFCBD5E1), Color(0xFF94A3B8)],
             ),
           ),
         );

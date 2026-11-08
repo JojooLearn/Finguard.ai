@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/formatters/currency_formatter.dart';
@@ -206,7 +207,9 @@ class MonthlyReviewRepositoryImpl implements MonthlyReviewRepository {
                 },
                 onConflict: 'user_id,period_start,period_end',
               );
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('Monthly review edge function upsert error: $e');
+            }
 
             return Success(
               MonthlyReviewEntity(
@@ -408,7 +411,8 @@ class MonthlyReviewRepositoryImpl implements MonthlyReviewRepository {
             transactions: confirmedTxs,
           ),
         );
-      } catch (_) {
+      } catch (e) {
+        debugPrint('Deterministic local monthly review DB error: $e');
         // Fallback to local entity if database upsert fails
       }
     }

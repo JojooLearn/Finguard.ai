@@ -2201,56 +2201,83 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // --- Intent G: Financial Advice & Health Check ---
     // Example: "beri saran keuangan", "tips hemat", "gimana kondisi keuangan saya?", "Kasih masukan dong buat dompet gue"
-    final savingsRate = totalIncome > 0
-        ? (netCashFlow / totalIncome * 100).toInt()
-        : 0;
-    final overBudgets = budgets
-        .where((b) => b.spentAmount > b.limitAmount)
-        .toList();
+    final isAdviceQuery = lower.contains('saran') ||
+        lower.contains('masukan') ||
+        lower.contains('evaluasi') ||
+        lower.contains('kondisi keuangan') ||
+        lower.contains('keuangan gue') ||
+        lower.contains('keuangan saya') ||
+        lower.contains('dompet gue') ||
+        lower.contains('dompet saya') ||
+        lower.contains('tips hemat') ||
+        lower.contains('rekomendasi keuangan') ||
+        lower.contains('kesehatan finansial') ||
+        lower.contains('nasihat');
 
-    final buffer = StringBuffer();
-    if (strictnessLevel >= 4) {
-      buffer.writeln('Evaluasi Finansial Lu Tod:');
-      buffer.writeln(
-        '1. Arus Kas: ${netCashFlow >= 0 ? 'Surplus ${_formatRp(netCashFlow)}' : 'Tekor ${_formatRp(netCashFlow.abs())} anjir'} (Porsi tabungan: $savingsRate%).',
-      );
-      if (overBudgets.isNotEmpty) {
+    if (isAdviceQuery) {
+      final savingsRate = totalIncome > 0
+          ? (netCashFlow / totalIncome * 100).toInt()
+          : 0;
+      final overBudgets = budgets
+          .where((b) => b.spentAmount > b.limitAmount)
+          .toList();
+
+      final buffer = StringBuffer();
+      if (strictnessLevel >= 4) {
+        buffer.writeln('Evaluasi Finansial Lu Tod:');
         buffer.writeln(
-          '2. Jatah Belanja: Pos "${overBudgets.map((b) => b.categoryName).join(', ')}" udah jebol tolol!',
+          '1. Arus Kas: ${netCashFlow >= 0 ? 'Surplus ${_formatRp(netCashFlow)}' : 'Tekor ${_formatRp(netCashFlow.abs())} anjir'} (Porsi tabungan: $savingsRate%).',
+        );
+        if (overBudgets.isNotEmpty) {
+          buffer.writeln(
+            '2. Jatah Belanja: Pos "${overBudgets.map((b) => b.categoryName).join(', ')}" udah jebol tolol!',
+          );
+        } else {
+          buffer.writeln('2. Jatah Belanja: Masih aman, tumben otak lu jalan.');
+        }
+        buffer.writeln(
+          '3. Profil & Laju Finansial: Profil $riskProfile | Frekuensi Pemasukan: $incomeFrequency.',
+        );
+        buffer.writeln('4. Prioritas: Amankan Dana Darurat lu dulu tod!');
+        buffer.writeln(
+          '\nAda yang mau lu tanyain lagi gak tod, sebelum dompet lu nangis?',
         );
       } else {
-        buffer.writeln('2. Jatah Belanja: Masih aman, tumben otak lu jalan.');
-      }
-      buffer.writeln(
-        '3. Profil & Laju Finansial: Profil $riskProfile | Frekuensi Pemasukan: $incomeFrequency.',
-      );
-      buffer.writeln('4. Prioritas: Amankan Dana Darurat lu dulu tod!');
-      buffer.writeln(
-        '\nAda yang mau lu tanyain lagi gak tod, sebelum dompet lu nangis?',
-      );
-    } else {
-      buffer.writeln('Evaluasi Keuangan Kamu:');
-      buffer.writeln(
-        '1. Arus Kas: ${netCashFlow >= 0 ? 'Surplus ${_formatRp(netCashFlow)}' : 'Defisit ${_formatRp(netCashFlow.abs())}'} (Rasio tabungan: $savingsRate%).',
-      );
-      if (overBudgets.isNotEmpty) {
+        buffer.writeln('Evaluasi Keuangan Kamu:');
         buffer.writeln(
-          '2. Anggaran: Pos "${overBudgets.map((b) => b.categoryName).join(', ')}" melebihi batas yang direncanakan.',
+          '1. Arus Kas: ${netCashFlow >= 0 ? 'Surplus ${_formatRp(netCashFlow)}' : 'Defisit ${_formatRp(netCashFlow.abs())}'} (Rasio tabungan: $savingsRate%).',
         );
-      } else {
-        buffer.writeln('2. Anggaran: Seluruh alokasi pos anggaran masih dalam batas aman.');
+        if (overBudgets.isNotEmpty) {
+          buffer.writeln(
+            '2. Anggaran: Pos "${overBudgets.map((b) => b.categoryName).join(', ')}" melebihi batas yang direncanakan.',
+          );
+        } else {
+          buffer.writeln('2. Anggaran: Seluruh alokasi pos anggaran masih dalam batas aman.');
+        }
+        buffer.writeln(
+          '3. Profil Risiko: $riskProfile | Frekuensi Pemasukan: $incomeFrequency.',
+        );
+        buffer.writeln('4. Prioritas: Pertahankan porsi tabungan dan tingkatkan dana darurat.');
+        buffer.writeln(
+          '\nAda yang ingin kamu diskusikan lagi?',
+        );
       }
-      buffer.writeln(
-        '3. Profil Risiko: $riskProfile | Frekuensi Pemasukan: $incomeFrequency.',
-      );
-      buffer.writeln('4. Prioritas: Pertahankan porsi tabungan dan tingkatkan dana darurat.');
-      buffer.writeln(
-        '\nAda yang ingin kamu diskusikan lagi?',
+
+      return (
+        reply: buffer.toString(),
+        extractedTx: null,
+        needsClarification: false,
+        missingFields: <String>[],
       );
     }
 
+    // --- Intent H: Offline Fallback for Unrecognized / Casual Queries ---
+    final fallbackReply = strictnessLevel >= 4
+        ? 'Otak cloud AI gue lagi ngelag atau koneksi internet lu lagi lemot nih tod! Buat obrolan bebas di luar keuangan atau analisa kompleks butuh internet stabil.\n\nTapi tenang, pencatatan transaksi lokal, cek jatah belanja, saldo kas, dan evaluasi dompet lu tetep bisa gue hitungin langsung tanpa internet. Coba ulangi pesan lu atau tanyain soal duit lu!'
+        : 'Koneksi ke AI Coach sedang terganggu atau jaringan internet sedang lambat. Untuk percakapan santai atau analisa cerdas, pastikan koneksi internet stabil ya.\n\nKamu tetap bisa mencatat pengeluaran/pemasukan, cek sisa anggaran, dan melihat status dompetmu secara langsung. Silakan coba kirim ulang pesanmu!';
+
     return (
-      reply: buffer.toString(),
+      reply: fallbackReply,
       extractedTx: null,
       needsClarification: false,
       missingFields: <String>[],
