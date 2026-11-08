@@ -407,6 +407,22 @@ class BudgetRepositoryImpl implements BudgetRepository {
           } else {
             // Category doesn't exist yet for this user in Supabase! Create it once.
             try {
+              String iconKey = 'shopping-cart';
+              String colorHex = '#83CA2D';
+              if (targetKey.contains('makan')) {
+                iconKey = 'utensils';
+                colorHex = '#E0A100';
+              } else if (targetKey.contains('transport')) {
+                iconKey = 'car';
+                colorHex = '#283202';
+              } else if (targetKey.contains('tagihan')) {
+                iconKey = 'receipt';
+                colorHex = '#D64545';
+              } else if (targetKey.contains('hiburan')) {
+                iconKey = 'ticket';
+                colorHex = '#885CF6';
+              }
+
               final newCat = await client
                   .from('categories')
                   .insert({
@@ -415,6 +431,8 @@ class BudgetRepositoryImpl implements BudgetRepository {
                     'transaction_type': 'expense',
                     'allocation_type':
                         targetKey == 'hiburan' ? 'wants' : 'needs',
+                    'icon_key': iconKey,
+                    'color_hex': colorHex,
                     'is_system': false,
                   })
                   .select('id')
