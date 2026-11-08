@@ -154,34 +154,6 @@ class CategoryRepositoryImpl implements CategoryRepository {
           }
           return Success(uniqueByName.values.toList());
         }
-
-        // Auto-seed categories ONLY if the entire database has 0 categories
-        try {
-          final countCheck = await client
-              .from('categories')
-              .select('id')
-              .limit(1);
-          if ((countCheck as List).isEmpty) {
-            final seedData = [
-              {'user_id': user.id, 'name': 'Makan & Minum', 'transaction_type': 'expense', 'allocation_type': 'needs', 'icon_key': 'utensils', 'color_hex': '#E0A100', 'is_system': false},
-              {'user_id': user.id, 'name': 'Transportasi', 'transaction_type': 'expense', 'allocation_type': 'needs', 'icon_key': 'car', 'color_hex': '#263202', 'is_system': false},
-              {'user_id': user.id, 'name': 'Tagihan & Utilitas', 'transaction_type': 'expense', 'allocation_type': 'needs', 'icon_key': 'receipt', 'color_hex': '#D64545', 'is_system': false},
-              {'user_id': user.id, 'name': 'Belanja Harian', 'transaction_type': 'expense', 'allocation_type': 'needs', 'icon_key': 'shopping-cart', 'color_hex': '#B3CA2D', 'is_system': false},
-              {'user_id': user.id, 'name': 'Kesehatan', 'transaction_type': 'expense', 'allocation_type': 'needs', 'icon_key': 'heart-pulse', 'color_hex': '#4A7C10', 'is_system': false},
-              {'user_id': user.id, 'name': 'Hiburan', 'transaction_type': 'expense', 'allocation_type': 'wants', 'icon_key': 'ticket', 'color_hex': '#8B5CF6', 'is_system': false},
-              {'user_id': user.id, 'name': 'Gaya Hidup & Hobi', 'transaction_type': 'expense', 'allocation_type': 'wants', 'icon_key': 'coffee', 'color_hex': '#EC4899', 'is_system': false},
-              {'user_id': user.id, 'name': 'Gaji & Upah', 'transaction_type': 'income', 'allocation_type': 'other', 'icon_key': 'wallet', 'color_hex': '#4A7C10', 'is_system': false},
-              {'user_id': user.id, 'name': 'Bonus & THR', 'transaction_type': 'income', 'allocation_type': 'other', 'icon_key': 'gift', 'color_hex': '#B3CA2D', 'is_system': false},
-              {'user_id': user.id, 'name': 'Penjualan & Usaha', 'transaction_type': 'income', 'allocation_type': 'other', 'icon_key': 'store', 'color_hex': '#3B82F6', 'is_system': false},
-              {'user_id': user.id, 'name': 'Investasi & Dividen', 'transaction_type': 'income', 'allocation_type': 'savings_debt', 'icon_key': 'trending-up', 'color_hex': '#10B981', 'is_system': false},
-              {'user_id': user.id, 'name': 'Lainnya', 'transaction_type': 'expense', 'allocation_type': 'other', 'icon_key': 'more-horizontal', 'color_hex': '#64748B', 'is_system': false},
-            ];
-            final inserted = await client.from('categories').insert(seedData).select();
-            if ((inserted as List).isNotEmpty) {
-              return getCategories(type: type);
-            }
-          }
-        } catch (_) {}
       }
     } catch (_) {}
 
