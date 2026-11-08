@@ -38,15 +38,14 @@ export async function callGemini({
     throw new ApiError("GEMINI_API_KEY environment variable is not configured", 500, "MISSING_AI_KEY");
   }
 
-  const preferredModel = Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash";
+  const envModel = Deno.env.get("GEMINI_MODEL");
   const modelCandidates = Array.from(
     new Set([
-      "gemini-3.5-flash",
-      "gemini-3.6-flash",
-      "gemini-3.7-flash",
-      preferredModel,
-      "gemini-3.8-flash",
-      "gemini-flash-latest",
+      ...(envModel ? [envModel] : []),
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-2.5-flash",
+      "gemini-1.5-pro",
     ])
   );
 
@@ -66,13 +65,39 @@ export async function callGemini({
     }),
   }));
 
-  const hasMultimodalImage = normalizedContents.some((m) =>
+  // Sanitize contents for Google Gemini API Multi-Turn Rules:
+  // 1. Gemini strictly requires the first turn to be role "user".
+  // 2. Turns must strictly alternate between "user" and "model".
+  let sanitizedContents: Array<{ role: string; parts: any[] }> = [];
+  let startIndex = 0;
+  while (startIndex < normalizedContents.length && normalizedContents[startIndex].role === "model") {
+    startIndex++;
+  }
+  const nonLeadingModelContents = normalizedContents.slice(startIndex);
+
+  for (const item of nonLeadingModelContents) {
+    if (!item.parts || item.parts.length === 0) continue;
+    if (sanitizedContents.length > 0 && sanitizedContents[sanitizedContents.length - 1].role === item.role) {
+      sanitizedContents[sanitizedContents.length - 1].parts.push(...item.parts);
+    } else {
+      sanitizedContents.push({
+        role: item.role,
+        parts: [...item.parts],
+      });
+    }
+  }
+
+  if (sanitizedContents.length === 0) {
+    sanitizedContents = [{ role: "user", parts: [{ text: "Halo Coach FinGuard!" }] }];
+  }
+
+  const hasMultimodalImage = sanitizedContents.some((m) =>
     m.parts.some((p: any) => Boolean(p.inline_data))
   );
 
   const buildRequestBody = (includeSchema: boolean) => {
     const body: any = {
-      contents: normalizedContents,
+      contents: sanitizedContents,
       generationConfig: {
         temperature,
       },
@@ -205,9 +230,8 @@ export async function generateGeminiSpeechAudio(
     .slice(0, 700);
 
   const audioModels = [
-    "gemini-3.5-flash-preview-tts",
-    "gemini-3.0-flash-exp",
-    "gemini-3.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
   ];
 
   // Configure Gemini with responseModalities & speechConfig per feature spec

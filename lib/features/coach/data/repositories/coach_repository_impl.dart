@@ -1361,8 +1361,7 @@ class CoachRepositoryImpl implements CoachRepository {
           actualLiquidCash <= 0 ||
           price > freeCash * 3) {
         final buffer = StringBuffer();
-        buffer.writeln('Evaluasi Pembelian $targetItem (${_formatRp(price)}):');
-        buffer.writeln('\nMode Savage Tongkrongan (Level $strictnessLevel/5):');
+        buffer.writeln('Mau Beli $targetItem (${_formatRp(price)}):');
         buffer.writeln('Waduh ${_formatRp(price)}?! Sadar diri lu anjing!');
         if (actualLiquidCash <= 0) {
           buffer.writeln(
@@ -1439,6 +1438,183 @@ class CoachRepositoryImpl implements CoachRepository {
           missingFields: <String>[],
         );
       }
+    }
+
+    // --- Intent F: Transaction Recording (Evaluated BEFORE temporal inquiries so "makan bakso 10k tadi" or "Catat: Nasi padang 25rb" are not misidentified as questions) ---
+    if (extractedAmount != null &&
+        extractedAmount > 0 &&
+        !isQuestion &&
+        !isPurchaseConsultation) {
+      final isIncome =
+          lower.contains('gaji') ||
+          lower.contains('terima') ||
+          lower.contains('masuk') ||
+          lower.contains('bonus') ||
+          lower.contains('upah') ||
+          lower.contains('profit') ||
+          lower.contains('cuan') ||
+          lower.contains('untung') ||
+          lower.contains('dividen') ||
+          lower.contains('imbal hasil') ||
+          lower.contains('pemasukan') ||
+          lower.contains('penjualan') ||
+          lower.contains('honor') ||
+          lower.contains('royalti') ||
+          lower.contains('dapat') ||
+          lower.contains('dapet') ||
+          lower.contains('cair') ||
+          lower.contains('saham') ||
+          lower.contains('crypto') ||
+          lower.contains('kripto') ||
+          lower.contains('reksadana');
+
+      final itemLabel = text
+          .replaceAll(
+            RegExp(
+              r'(?:rp\.?\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:\s*(?:juta|jt|ribu|rb|k))?',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .replaceAll(
+            RegExp(
+              r'(catat:?|tadi|siang|malam|pagi|beli|buat|sebesar|rp|ke|di)',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
+
+      final hasKeywords =
+          lower.contains('makan') ||
+          lower.contains('minum') ||
+          lower.contains('kopi') ||
+          lower.contains('bensin') ||
+          lower.contains('transport') ||
+          lower.contains('pulsa') ||
+          lower.contains('listrik') ||
+          lower.contains('gaji') ||
+          lower.contains('bonus') ||
+          lower.contains('nonton') ||
+          lower.contains('belanja') ||
+          lower.contains('obat') ||
+          lower.contains('parkir') ||
+          lower.contains('tagihan') ||
+          lower.contains('freelance') ||
+          lower.contains('proyek') ||
+          lower.contains('pemasukan') ||
+          lower.contains('usaha') ||
+          lower.contains('jual') ||
+          lower.contains('investasi') ||
+          lower.contains('dividen') ||
+          lower.contains('saham') ||
+          lower.contains('profit') ||
+          lower.contains('cuan') ||
+          lower.contains('untung') ||
+          lower.contains('crypto') ||
+          lower.contains('kripto') ||
+          lower.contains('reksadana');
+
+      if (!hasKeywords && itemLabel.isEmpty) {
+        return (
+          reply:
+              'Duit ${_formatRp(extractedAmount)} ini buat apaan njir? Yang jelas napa dongo! Contoh ketik: "Beli bensin ${_formatRp(extractedAmount)}" atau "Makan ${_formatRp(extractedAmount)}".',
+          extractedTx: null,
+          needsClarification: true,
+          missingFields: ['kategori/catatan'],
+        );
+      }
+
+      String cleanNote = itemLabel.isEmpty
+          ? (isIncome ? 'Pemasukan' : 'Makan & Minum')
+          : itemLabel;
+      if (lower.contains('saham')) {
+        cleanNote =
+            lower.contains('profit') ||
+                lower.contains('cuan') ||
+                lower.contains('untung')
+            ? 'Profit Saham'
+            : 'Investasi Saham';
+      } else if (lower.contains('crypto') || lower.contains('kripto')) {
+        cleanNote = 'Profit Kripto';
+      } else if (lower.contains('dividen')) {
+        cleanNote = 'Dividen Saham';
+      } else if (lower.contains('freelance')) {
+        cleanNote = 'Pemasukan Freelance';
+      }
+
+      String categorySuggestion = 'Makan & Minum';
+      if (isIncome) {
+        if (lower.contains('saham') ||
+            lower.contains('investasi') ||
+            lower.contains('dividen') ||
+            lower.contains('profit') ||
+            lower.contains('cuan') ||
+            lower.contains('crypto') ||
+            lower.contains('kripto') ||
+            lower.contains('reksadana')) {
+          categorySuggestion = 'Investasi & Dividen';
+        } else if (lower.contains('freelance') ||
+            lower.contains('proyek') ||
+            lower.contains('jual') ||
+            lower.contains('usaha') ||
+            lower.contains('bisnis') ||
+            lower.contains('klien')) {
+          categorySuggestion = 'Penjualan & Usaha';
+        } else if (lower.contains('bonus') ||
+            lower.contains('thr') ||
+            lower.contains('hadiah')) {
+          categorySuggestion = 'Bonus & THR';
+        } else {
+          categorySuggestion = 'Gaji & Upah';
+        }
+      } else if (lower.contains('bensin') ||
+          lower.contains('transport') ||
+          lower.contains('gojek') ||
+          lower.contains('grab') ||
+          lower.contains('tol') ||
+          lower.contains('parkir')) {
+        categorySuggestion = 'Transportasi';
+      } else if (lower.contains('listrik') ||
+          lower.contains('wifi') ||
+          lower.contains('pulsa') ||
+          lower.contains('air') ||
+          lower.contains('tagihan')) {
+        categorySuggestion = 'Tagihan & Utilitas';
+      } else if (lower.contains('nonton') ||
+          lower.contains('kopi') ||
+          lower.contains('game') ||
+          lower.contains('hibur')) {
+        categorySuggestion = 'Hiburan';
+      } else if (lower.contains('obat') ||
+          lower.contains('dokter') ||
+          lower.contains('sehat') ||
+          lower.contains('apotek')) {
+        categorySuggestion = 'Kesehatan';
+      } else if (lower.contains('belanja') ||
+          lower.contains('supermarket') ||
+          lower.contains('alfa') ||
+          lower.contains('indo')) {
+        categorySuggestion = 'Belanja Harian';
+      }
+
+      final formattedAmt = _formatRp(extractedAmount);
+      final replyText = strictnessLevel >= 4
+          ? 'Nih draf transaksi ${isIncome ? 'pemasukan' : 'pengeluaran'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion udah gue siapin.\n\nCek kartu di bawah dan klik "Simpan" buat masukin ke database, atau "Batal" kalo kaga jadi!'
+          : 'Draf transaksi ${isIncome ? 'pemasukan' : 'pengeluaran'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion sudah disiapkan.\n\nSilakan cek kartu di bawah lalu ketuk "Simpan" untuk mencatat ke database, atau "Batal" jika tidak jadi.';
+
+      return (
+        reply: replyText,
+        extractedTx: {
+          'amount': extractedAmount,
+          'type': isIncome ? 'income' : 'expense',
+          'note': cleanNote,
+          'category_suggestion': categorySuggestion,
+          'confidence': 0.95,
+        },
+        needsClarification: false,
+        missingFields: <String>[],
+      );
     }
 
     // --- Intent B.1: Temporal Inquiries (Kemarin, Hari Ini) ---
@@ -2023,183 +2199,8 @@ class CoachRepositoryImpl implements CoachRepository {
       );
     }
 
-    // --- Intent F: Transaction Recording (Only when NOT a question/consultation and has amount) ---
-    // Example: "makan siang 35.000", "beli bensin 50rb", "gaji 8.5 juta"
-    if (extractedAmount != null && extractedAmount > 0 && !isQuestion) {
-      final isIncome =
-          lower.contains('gaji') ||
-          lower.contains('terima') ||
-          lower.contains('masuk') ||
-          lower.contains('bonus') ||
-          lower.contains('upah') ||
-          lower.contains('profit') ||
-          lower.contains('cuan') ||
-          lower.contains('untung') ||
-          lower.contains('dividen') ||
-          lower.contains('imbal hasil') ||
-          lower.contains('pemasukan') ||
-          lower.contains('penjualan') ||
-          lower.contains('honor') ||
-          lower.contains('royalti') ||
-          lower.contains('dapat') ||
-          lower.contains('dapet') ||
-          lower.contains('cair') ||
-          lower.contains('saham') ||
-          lower.contains('crypto') ||
-          lower.contains('kripto') ||
-          lower.contains('reksadana');
-
-      final itemLabel = text
-          .replaceAll(
-            RegExp(
-              r'(?:rp\.?\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:\s*(?:juta|jt|ribu|rb|k))?',
-              caseSensitive: false,
-            ),
-            '',
-          )
-          .replaceAll(
-            RegExp(
-              r'(tadi|siang|malam|pagi|beli|buat|sebesar|rp|ke|di)',
-              caseSensitive: false,
-            ),
-            '',
-          )
-          .trim();
-
-      final hasKeywords =
-          lower.contains('makan') ||
-          lower.contains('minum') ||
-          lower.contains('kopi') ||
-          lower.contains('bensin') ||
-          lower.contains('transport') ||
-          lower.contains('pulsa') ||
-          lower.contains('listrik') ||
-          lower.contains('gaji') ||
-          lower.contains('bonus') ||
-          lower.contains('nonton') ||
-          lower.contains('belanja') ||
-          lower.contains('obat') ||
-          lower.contains('parkir') ||
-          lower.contains('tagihan') ||
-          lower.contains('freelance') ||
-          lower.contains('proyek') ||
-          lower.contains('pemasukan') ||
-          lower.contains('usaha') ||
-          lower.contains('jual') ||
-          lower.contains('investasi') ||
-          lower.contains('dividen') ||
-          lower.contains('saham') ||
-          lower.contains('profit') ||
-          lower.contains('cuan') ||
-          lower.contains('untung') ||
-          lower.contains('crypto') ||
-          lower.contains('kripto') ||
-          lower.contains('reksadana');
-
-      if (!hasKeywords && itemLabel.isEmpty) {
-        return (
-          reply:
-              'Duit ${_formatRp(extractedAmount)} ini buat apaan njir? Yang jelas napa dongo! Contoh ketik: "Beli bensin ${_formatRp(extractedAmount)}" atau "Makan ${_formatRp(extractedAmount)}".',
-          extractedTx: null,
-          needsClarification: true,
-          missingFields: ['kategori/catatan'],
-        );
-      }
-
-      String cleanNote = itemLabel.isEmpty
-          ? (isIncome ? 'Pemasukan' : 'Makan & Minum')
-          : itemLabel;
-      if (lower.contains('saham')) {
-        cleanNote =
-            lower.contains('profit') ||
-                lower.contains('cuan') ||
-                lower.contains('untung')
-            ? 'Profit Saham'
-            : 'Investasi Saham';
-      } else if (lower.contains('crypto') || lower.contains('kripto')) {
-        cleanNote = 'Profit Kripto';
-      } else if (lower.contains('dividen')) {
-        cleanNote = 'Dividen Saham';
-      } else if (lower.contains('freelance')) {
-        cleanNote = 'Pemasukan Freelance';
-      }
-
-      String categorySuggestion = 'Makan & Minum';
-      if (isIncome) {
-        if (lower.contains('saham') ||
-            lower.contains('investasi') ||
-            lower.contains('dividen') ||
-            lower.contains('profit') ||
-            lower.contains('cuan') ||
-            lower.contains('crypto') ||
-            lower.contains('kripto') ||
-            lower.contains('reksadana')) {
-          categorySuggestion = 'Investasi & Dividen';
-        } else if (lower.contains('freelance') ||
-            lower.contains('proyek') ||
-            lower.contains('jual') ||
-            lower.contains('usaha') ||
-            lower.contains('bisnis') ||
-            lower.contains('klien')) {
-          categorySuggestion = 'Penjualan & Usaha';
-        } else if (lower.contains('bonus') ||
-            lower.contains('thr') ||
-            lower.contains('hadiah')) {
-          categorySuggestion = 'Bonus & THR';
-        } else {
-          categorySuggestion = 'Gaji & Upah';
-        }
-      } else if (lower.contains('bensin') ||
-          lower.contains('transport') ||
-          lower.contains('gojek') ||
-          lower.contains('grab') ||
-          lower.contains('tol') ||
-          lower.contains('parkir')) {
-        categorySuggestion = 'Transportasi';
-      } else if (lower.contains('listrik') ||
-          lower.contains('wifi') ||
-          lower.contains('pulsa') ||
-          lower.contains('air') ||
-          lower.contains('tagihan')) {
-        categorySuggestion = 'Tagihan & Utilitas';
-      } else if (lower.contains('nonton') ||
-          lower.contains('kopi') ||
-          lower.contains('game') ||
-          lower.contains('hibur')) {
-        categorySuggestion = 'Hiburan';
-      } else if (lower.contains('obat') ||
-          lower.contains('dokter') ||
-          lower.contains('sehat') ||
-          lower.contains('apotek')) {
-        categorySuggestion = 'Kesehatan';
-      } else if (lower.contains('belanja') ||
-          lower.contains('supermarket') ||
-          lower.contains('alfa') ||
-          lower.contains('indo')) {
-        categorySuggestion = 'Belanja Harian';
-      }
-
-      final formattedAmt = _formatRp(extractedAmount);
-      final replyText = strictnessLevel >= 4
-          ? 'Nih draf transaksi ${isIncome ? 'pemasukan' : 'pengeluaran'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion udah gue siapin.\n\nCek kartu di bawah dan klik "Simpan" buat masukin ke database, atau "Batal" kalo kaga jadi!'
-          : 'Draf transaksi ${isIncome ? 'pemasukan' : 'pengeluaran'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion sudah disiapkan.\n\nSilakan cek kartu di bawah lalu ketuk "Simpan" untuk mencatat ke database, atau "Batal" jika tidak jadi.';
-
-      return (
-        reply: replyText,
-        extractedTx: {
-          'amount': extractedAmount,
-          'type': isIncome ? 'income' : 'expense',
-          'note': cleanNote,
-          'category_suggestion': categorySuggestion,
-          'confidence': 0.95,
-        },
-        needsClarification: false,
-        missingFields: <String>[],
-      );
-    }
-
     // --- Intent G: Financial Advice & Health Check ---
-    // Example: "beri saran keuangan", "tips hemat", "gimana kondisi keuangan saya?"
+    // Example: "beri saran keuangan", "tips hemat", "gimana kondisi keuangan saya?", "Kasih masukan dong buat dompet gue"
     final savingsRate = totalIncome > 0
         ? (netCashFlow / totalIncome * 100).toInt()
         : 0;
@@ -2208,26 +2209,45 @@ class CoachRepositoryImpl implements CoachRepository {
         .toList();
 
     final buffer = StringBuffer();
-    buffer.writeln('Evaluasi Finansial Lu Tod:');
-    buffer.writeln(
-      '1. Arus Kas: ${netCashFlow >= 0 ? 'Surplus ${_formatRp(netCashFlow)}' : 'Tekor ${_formatRp(netCashFlow.abs())} anjir'} (Porsi tabungan: $savingsRate%).',
-    );
-
-    if (overBudgets.isNotEmpty) {
+    if (strictnessLevel >= 4) {
+      buffer.writeln('Evaluasi Finansial Lu Tod:');
       buffer.writeln(
-        '2. Jatah Belanja: Pos "${overBudgets.map((b) => b.categoryName).join(', ')}" udah jebol tolol!',
+        '1. Arus Kas: ${netCashFlow >= 0 ? 'Surplus ${_formatRp(netCashFlow)}' : 'Tekor ${_formatRp(netCashFlow.abs())} anjir'} (Porsi tabungan: $savingsRate%).',
+      );
+      if (overBudgets.isNotEmpty) {
+        buffer.writeln(
+          '2. Jatah Belanja: Pos "${overBudgets.map((b) => b.categoryName).join(', ')}" udah jebol tolol!',
+        );
+      } else {
+        buffer.writeln('2. Jatah Belanja: Masih aman, tumben otak lu jalan.');
+      }
+      buffer.writeln(
+        '3. Profil & Laju Finansial: Profil $riskProfile | Frekuensi Pemasukan: $incomeFrequency.',
+      );
+      buffer.writeln('4. Prioritas: Amankan Dana Darurat lu dulu tod!');
+      buffer.writeln(
+        '\nAda yang mau lu tanyain lagi gak tod, sebelum dompet lu nangis?',
       );
     } else {
-      buffer.writeln('2. Jatah Belanja: Masih aman, tumben otak lu jalan.');
+      buffer.writeln('Evaluasi Keuangan Kamu:');
+      buffer.writeln(
+        '1. Arus Kas: ${netCashFlow >= 0 ? 'Surplus ${_formatRp(netCashFlow)}' : 'Defisit ${_formatRp(netCashFlow.abs())}'} (Rasio tabungan: $savingsRate%).',
+      );
+      if (overBudgets.isNotEmpty) {
+        buffer.writeln(
+          '2. Anggaran: Pos "${overBudgets.map((b) => b.categoryName).join(', ')}" melebihi batas yang direncanakan.',
+        );
+      } else {
+        buffer.writeln('2. Anggaran: Seluruh alokasi pos anggaran masih dalam batas aman.');
+      }
+      buffer.writeln(
+        '3. Profil Risiko: $riskProfile | Frekuensi Pemasukan: $incomeFrequency.',
+      );
+      buffer.writeln('4. Prioritas: Pertahankan porsi tabungan dan tingkatkan dana darurat.');
+      buffer.writeln(
+        '\nAda yang ingin kamu diskusikan lagi?',
+      );
     }
-
-    buffer.writeln(
-      '3. Profil & Laju Finansial: Profil $riskProfile | Frekuensi Pemasukan: $incomeFrequency.',
-    );
-    buffer.writeln('4. Prioritas: Amankan Dana Darurat lu dulu tod!');
-    buffer.writeln(
-      '\nAda yang mau lu tanyain lagi gak tod, sebelum dompet lu nangis?',
-    );
 
     return (
       reply: buffer.toString(),
