@@ -43,6 +43,21 @@ export interface GoalContributionItem {
   note: string;
 }
 
+export interface DebtContextItem {
+  id: string;
+  name: string;
+  monthlyPayment: number;
+  remainingTenor: number;
+  totalTenor: number;
+  remainingAmount: number;
+  dueDay: number;
+  annualInterestRate: number;
+  appliedInterestAmount: number;
+  appliedYears: number;
+  startDate: string;
+  isCompleted: boolean;
+}
+
 export interface MonthlyReviewSnapshot {
   periodStart: string;
   periodEnd: string;
@@ -106,6 +121,7 @@ export interface UserFinancialContext {
     remaining: number;
   }>;
   goals: GoalItem[];
+  debts: DebtContextItem[];
   goalContributions: GoalContributionItem[];
   latestMonthlyReview: MonthlyReviewSnapshot | null;
   preferences: UserPreferencesSnapshot | null;
@@ -400,24 +416,77 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
     };
   });
 
-  const goals: GoalItem[] = (goalsRes.data || []).map((g: any) => {
-    const target = Number(g.target_amount || 0);
-    const current = Number(g.current_amount || 0);
-    const isAchieved = g.is_achieved === true || g.status === "completed";
-    return {
-      id: g.id,
-      name: g.name,
-      description: g.description || (isAchieved ? "Target tercapai!" : ""),
-      goalType: g.goal_type || (isAchieved ? "completed" : "savings"),
-      target,
-      current,
-      remaining: Math.max(0, target - current),
-      targetDate: g.target_date || "",
-      priority: Number(g.priority || 3),
-      status: isAchieved ? "completed" : (g.status || "active"),
-      progressPercent: target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0,
-    };
-  });
+  const goals: GoalItem[] = [];
+  const debts: DebtContextItem[] = [];
+
+  for (const g of (goalsRes.data || [])) {
+    if (g.goal_type === "debt_repayment") {
+      let monthly = 0;
+      let remaining = 1;
+      let total = 1;
+      let due = 10;
+      let annualRate = 0;
+      let appliedInterest = 0;
+      let appliedYears = 0;
+      let startDateStr = g.created_at || "";
+
+      if (g.description) {
+        try {
+          const meta = JSON.parse(g.description);
+          if (typeof meta === "object" && meta !== null) {
+            monthly = Number(meta.monthly_payment || 0);
+            remaining = Number(meta.remaining_tenor ?? 1);
+            total = Number(meta.total_tenor ?? 1);
+            due = Number(meta.due_day ?? 10);
+            annualRate = Number(meta.annual_interest_rate || 0);
+            appliedInterest = Number(meta.applied_interest_amount || 0);
+            appliedYears = Number(meta.applied_years || 0);
+            if (meta.start_date) startDateStr = String(meta.start_date);
+          }
+        } catch (_) {}
+      }
+
+      if (monthly === 0 && total > 0) {
+        monthly = Number(g.target_amount || 0) / total;
+      }
+
+      const remPrincipal = remaining * monthly;
+      const totalRemaining = remPrincipal + appliedInterest;
+      const isDone = g.status === "completed" || remaining <= 0;
+
+      debts.push({
+        id: g.id,
+        name: g.name,
+        monthlyPayment: monthly,
+        remainingTenor: remaining,
+        totalTenor: total,
+        remainingAmount: totalRemaining,
+        dueDay: due,
+        annualInterestRate: annualRate,
+        appliedInterestAmount: appliedInterest,
+        appliedYears,
+        startDate: startDateStr,
+        isCompleted: isDone,
+      });
+    } else {
+      const target = Number(g.target_amount || 0);
+      const current = Number(g.current_amount || 0);
+      const isAchieved = g.is_achieved === true || g.status === "completed";
+      goals.push({
+        id: g.id,
+        name: g.name,
+        description: g.description || (isAchieved ? "Target tercapai!" : ""),
+        goalType: g.goal_type || (isAchieved ? "completed" : "savings"),
+        target,
+        current,
+        remaining: Math.max(0, target - current),
+        targetDate: g.target_date || "",
+        priority: Number(g.priority || 3),
+        status: isAchieved ? "completed" : (g.status || "active"),
+        progressPercent: target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0,
+      });
+    }
+  }
 
   const goalContributions: GoalContributionItem[] = (contributionsRes.data || []).map((gc: any) => ({
     id: gc.id,
@@ -501,6 +570,7 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
     accounts,
     activeBudgets: budgets,
     goals,
+    debts,
     goalContributions,
     latestMonthlyReview,
     preferences,

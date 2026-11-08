@@ -36,235 +36,334 @@ class _ActiveDebtsView extends StatelessWidget {
     final remainingCtrl = TextEditingController();
     final totalCtrl = TextEditingController();
     final dueDayCtrl = TextEditingController();
+    final interestCtrl = TextEditingController();
+    DateTime selectedStartDate = DateTime.now();
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => Container(
-        padding: EdgeInsets.only(
-          left: 24,
-          right: 24,
-          top: 16,
-          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 28,
-        ),
-        decoration: const BoxDecoration(
-          color: AppColors.surfaceCard,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Tambah Cicilan Baru',
-                style: AppTypography.screenTitle.copyWith(fontSize: 20),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Catat kewajiban rutin agar rasio beban utang (DSR) tetap terkontrol.',
-                style: AppTypography.caption,
-              ),
-              const SizedBox(height: 18),
-
-              // Nama Cicilan
-              Text('Nama Cicilan / Utang',
-                  style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
-              const SizedBox(height: 6),
-              TextField(
-                controller: nameCtrl,
-                style: AppTypography.body,
-                decoration: InputDecoration(
-                  hintText: 'Misal: Cicilan HP, KPR Rumah, Motor',
-                  hintStyle: AppTypography.bodySecondary,
-                  filled: true,
-                  fillColor: AppColors.surfaceFieldFill,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // Cicilan per bulan
-              Text('Nominal Cicilan per Bulan',
-                  style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
-              const SizedBox(height: 6),
-              TextField(
-                controller: paymentCtrl,
-                keyboardType: TextInputType.number,
-                inputFormatters: [CurrencyInputFormatter()],
-                style: AppTypography.bigNumber.copyWith(fontSize: 24),
-                decoration: InputDecoration(
-                  prefixText: 'Rp ',
-                  prefixStyle: AppTypography.bigNumber.copyWith(fontSize: 22),
-                  hintText: '1.000.000',
-                  hintStyle: AppTypography.bigNumber.copyWith(
-                    fontSize: 22,
-                    color: AppColors.textPlaceholder,
-                  ),
-                  filled: true,
-                  fillColor: AppColors.surfaceFieldFill,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // Tenor Row (Sisa & Total)
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Sisa Tenor (Bulan)',
-                            style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: remainingCtrl,
-                          keyboardType: TextInputType.number,
-                          style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
-                          decoration: InputDecoration(
-                            hintText: 'Misal: 6',
-                            hintStyle: AppTypography.bodySecondary,
-                            filled: true,
-                            fillColor: AppColors.surfaceFieldFill,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 13,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ],
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Container(
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 16,
+            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 28,
+          ),
+          decoration: const BoxDecoration(
+            color: AppColors.surfaceCard,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Total Tenor (Bulan)',
-                            style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: totalCtrl,
-                          keyboardType: TextInputType.number,
-                          style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
-                          decoration: InputDecoration(
-                            hintText: 'Misal: 12',
-                            hintStyle: AppTypography.bodySecondary,
-                            filled: true,
-                            fillColor: AppColors.surfaceFieldFill,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 13,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Tambah Cicilan Baru',
+                  style: AppTypography.screenTitle.copyWith(fontSize: 20),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Catat kewajiban rutin agar rasio beban utang (DSR) tetap terkontrol.',
+                  style: AppTypography.caption,
+                ),
+                const SizedBox(height: 18),
+
+                // Nama Cicilan
+                Text('Nama Cicilan / Utang',
+                    style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: nameCtrl,
+                  style: AppTypography.body,
+                  decoration: InputDecoration(
+                    hintText: 'Misal: Cicilan HP, KPR Rumah, Motor',
+                    hintStyle: AppTypography.bodySecondary,
+                    filled: true,
+                    fillColor: AppColors.surfaceFieldFill,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 14),
+                ),
+                const SizedBox(height: 14),
 
-              // Due Day
-              Text('Tanggal Jatuh Tempo Tiap Bulan',
-                  style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
-              const SizedBox(height: 6),
-              TextField(
-                controller: dueDayCtrl,
-                keyboardType: TextInputType.number,
-                style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
-                decoration: InputDecoration(
-                  prefixText: 'Tgl ',
-                  prefixStyle: AppTypography.body.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
-                  ),
-                  hintText: 'Misal: 10',
-                  hintStyle: AppTypography.bodySecondary,
-                  filled: true,
-                  fillColor: AppColors.surfaceFieldFill,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 13,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
+                // Cicilan per bulan
+                Text('Nominal Cicilan per Bulan',
+                    style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: paymentCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [CurrencyInputFormatter()],
+                  style: AppTypography.bigNumber.copyWith(fontSize: 24),
+                  decoration: InputDecoration(
+                    prefixText: 'Rp ',
+                    prefixStyle: AppTypography.bigNumber.copyWith(fontSize: 22),
+                    hintText: '1.000.000',
+                    hintStyle: AppTypography.bigNumber.copyWith(
+                      fontSize: 22,
+                      color: AppColors.textPlaceholder,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surfaceFieldFill,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
+                const SizedBox(height: 14),
 
-              AppButton(
-                label: 'Simpan Cicilan',
-                onPressed: () {
-                  final name = nameCtrl.text.trim();
-                  final payment = CurrencyInputFormatter.parse(paymentCtrl.text);
-                  final remaining = int.tryParse(remainingCtrl.text.trim()) ?? 1;
-                  final total = int.tryParse(totalCtrl.text.trim()) ?? remaining;
-                  final due = int.tryParse(dueDayCtrl.text.trim()) ?? 10;
+                // Tenor Row (Sisa & Total)
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Sisa Tenor (Bulan)',
+                              style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: remainingCtrl,
+                            keyboardType: TextInputType.number,
+                            style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
+                            decoration: InputDecoration(
+                              hintText: 'Misal: 6',
+                              hintStyle: AppTypography.bodySecondary,
+                              filled: true,
+                              fillColor: AppColors.surfaceFieldFill,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 13,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Total Tenor (Bulan)',
+                              style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: totalCtrl,
+                            keyboardType: TextInputType.number,
+                            style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
+                            decoration: InputDecoration(
+                              hintText: 'Misal: 12',
+                              hintStyle: AppTypography.bodySecondary,
+                              filled: true,
+                              fillColor: AppColors.surfaceFieldFill,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 13,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
 
-                  if (name.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Masukkan nama cicilan')),
-                    );
-                    return;
-                  }
-                  if (payment <= 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Nominal cicilan per bulan harus lebih dari 0')),
-                    );
-                    return;
-                  }
+                // Bunga per Tahun & Tanggal Mulai Cicilan
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Bunga per Tahun (%)',
+                              style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: interestCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
+                            decoration: InputDecoration(
+                              suffixText: '%/thn',
+                              suffixStyle: AppTypography.captionText.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primary,
+                              ),
+                              hintText: '0 (Bebas Bunga)',
+                              hintStyle: AppTypography.bodySecondary,
+                              filled: true,
+                              fillColor: AppColors.surfaceFieldFill,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 13,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Mulai Cicilan',
+                              style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
+                          const SizedBox(height: 6),
+                          GestureDetector(
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: sheetCtx,
+                                initialDate: selectedStartDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now(),
+                              );
+                              if (picked != null) {
+                                setSheetState(() => selectedStartDate = picked);
+                              }
+                            },
+                            child: Container(
+                              height: 48,
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceFieldFill,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              alignment: Alignment.centerLeft,
+                              child: Row(
+                                children: [
+                                  Icon(PhosphorIcons.calendar(PhosphorIconsStyle.bold),
+                                      size: 16, color: AppColors.primary),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '${selectedStartDate.day}/${selectedStartDate.month}/${selectedStartDate.year}',
+                                      style: AppTypography.body.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
 
-                  context.read<DebtCubit>().addDebt(
-                        name: name,
-                        monthlyPayment: payment,
-                        remainingTenor: remaining,
-                        totalTenor: total < remaining ? remaining : total,
-                        dueDay: due.clamp(1, 31),
+                // Due Day
+                Text('Tanggal Jatuh Tempo Tiap Bulan',
+                    style: AppTypography.sectionLabel.copyWith(fontSize: 13)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: dueDayCtrl,
+                  keyboardType: TextInputType.number,
+                  style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
+                  decoration: InputDecoration(
+                    prefixText: 'Tgl ',
+                    prefixStyle: AppTypography.body.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                    hintText: 'Misal: 10',
+                    hintStyle: AppTypography.bodySecondary,
+                    filled: true,
+                    fillColor: AppColors.surfaceFieldFill,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 13,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                AppButton(
+                  label: 'Simpan Cicilan',
+                  onPressed: () {
+                    final name = nameCtrl.text.trim();
+                    final payment = CurrencyInputFormatter.parse(paymentCtrl.text);
+                    final remaining = int.tryParse(remainingCtrl.text.trim()) ?? 1;
+                    final total = int.tryParse(totalCtrl.text.trim()) ?? remaining;
+                    final due = int.tryParse(dueDayCtrl.text.trim()) ?? 10;
+                    final annualRate = double.tryParse(
+                      interestCtrl.text.replaceAll(',', '.').replaceAll('%', '').trim(),
+                    ) ?? 0.0;
+
+                    if (name.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Masukkan nama cicilan')),
                       );
+                      return;
+                    }
+                    if (payment <= 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Nominal cicilan per bulan harus lebih dari 0')),
+                      );
+                      return;
+                    }
 
-                  Navigator.pop(sheetCtx);
-                  context.read<ProfileCubit>().loadProfile();
-                },
-              ),
-            ],
+                    context.read<DebtCubit>().addDebt(
+                          name: name,
+                          monthlyPayment: payment,
+                          remainingTenor: remaining,
+                          totalTenor: total < remaining ? remaining : total,
+                          dueDay: due.clamp(1, 31),
+                          annualInterestRate: annualRate,
+                          startDate: selectedStartDate,
+                        );
+
+                    Navigator.pop(sheetCtx);
+                    context.read<ProfileCubit>().loadProfile();
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -585,15 +684,39 @@ class _ActiveDebtsView extends StatelessWidget {
                       style: AppTypography.itemTitle.copyWith(fontSize: 15),
                     ),
                     const SizedBox(height: 3),
-                    Row(
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 6,
                       children: [
-                        Icon(PhosphorIcons.calendar(PhosphorIconsStyle.bold),
-                            size: 13, color: AppColors.textSecondary),
-                        const SizedBox(width: 4),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(PhosphorIcons.calendar(PhosphorIconsStyle.bold),
+                                size: 13, color: AppColors.textSecondary),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Jatuh tempo tgl ${debt.dueDay} tiap bulan',
+                              style: AppTypography.captionText.copyWith(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Text('•',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            )),
                         Text(
-                          'Jatuh tempo tgl ${debt.dueDay} tiap bulan',
+                          debt.annualInterestRate > 0
+                              ? 'Bunga ${debt.annualInterestRate.toStringAsFixed(debt.annualInterestRate.truncateToDouble() == debt.annualInterestRate ? 0 : 1)}%/thn'
+                              : 'Bunga 0%',
                           style: AppTypography.captionText.copyWith(
-                            color: AppColors.textSecondary,
+                            color: debt.annualInterestRate > 0
+                                ? AppColors.warningOrange
+                                : AppColors.incomeGreen,
+                            fontWeight: FontWeight.w700,
                             fontSize: 11,
                           ),
                         ),
@@ -690,11 +813,53 @@ class _ActiveDebtsView extends StatelessWidget {
                         color: AppColors.textPrimary,
                       ),
                     ),
+                    if (debt.appliedInterestAmount > 0)
+                      Text(
+                        'Pokok: ${CurrencyFormatter.format(debt.remainingPrincipal)}',
+                        style: AppTypography.captionText.copyWith(
+                          fontSize: 10,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                   ],
                 ),
               ],
             ),
           ),
+          if (debt.appliedInterestAmount > 0) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.warningTint.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppColors.warningOrange.withValues(alpha: 0.3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    PhosphorIcons.trendUp(PhosphorIconsStyle.bold),
+                    color: AppColors.warningOrange,
+                    size: 15,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Bunga ${debt.annualInterestRate.toStringAsFixed(0)}%/thn (+${CurrencyFormatter.format(debt.appliedInterestAmount)}) telah bertambah otomatis ke sisa cicilan setelah genap ${debt.appliedYears} tahun.',
+                      style: AppTypography.captionText.copyWith(
+                        color: AppColors.warningOrange,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
 
           // Action Button

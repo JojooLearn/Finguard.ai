@@ -29,6 +29,7 @@ class _GoalsPageState extends State<GoalsPage> {
     final nameCtrl = TextEditingController();
     final targetCtrl = TextEditingController();
     final availableTypes = GoalType.values.where((t) {
+      if (t == GoalType.debtRepayment) return false;
       if (hasEmergencyFund && t == GoalType.emergencyFund) return false;
       return true;
     }).toList();
@@ -44,8 +45,6 @@ class _GoalsPageState extends State<GoalsPage> {
           String namePlaceholder = 'Misal: Beli Laptop, Liburan';
           if (selectedType == GoalType.emergencyFund) {
             namePlaceholder = 'Misal: Dana Darurat 6 Bulan';
-          } else if (selectedType == GoalType.debtRepayment) {
-            namePlaceholder = 'Misal: Lunasi Cicilan Laptop';
           } else if (selectedType == GoalType.other) {
             namePlaceholder = 'Misal: Modal Usaha Sampingan';
           }
@@ -165,7 +164,11 @@ class _GoalsPageState extends State<GoalsPage> {
                       prefixStyle: AppTypography.bigNumber.copyWith(
                         fontSize: 22,
                       ),
-                      hintText: '1.000.000',
+                      hintText: '0',
+                      hintStyle: AppTypography.bigNumber.copyWith(
+                        fontSize: 22,
+                        color: AppColors.textPlaceholder,
+                      ),
                       filled: true,
                       fillColor: AppColors.surfaceFieldFill,
                       contentPadding: const EdgeInsets.symmetric(
@@ -333,12 +336,10 @@ class _GoalsPageState extends State<GoalsPage> {
                         return;
                       }
 
-                      final rawTarget = targetCtrl.text
-                          .replaceAll('.', '')
-                          .replaceAll(',', '')
-                          .trim();
-                      final target = double.tryParse(rawTarget);
-                      if (target == null || target <= 0) {
+                      final target =
+                          CurrencyInputFormatter.parse(targetCtrl.text);
+                      if (target <= 0) {
+                        ScaffoldMessenger.of(context).clearSnackBars();
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: const Text(
@@ -375,6 +376,7 @@ class _GoalsPageState extends State<GoalsPage> {
                         targetAmount: target,
                         priority: selectedPriority,
                       );
+                      ScaffoldMessenger.of(context).clearSnackBars();
                       Navigator.pop(ctx);
                       ScaffoldMessenger.of(this.context).showSnackBar(
                         SnackBar(
@@ -622,6 +624,7 @@ class _GoalsPageState extends State<GoalsPage> {
 
         if (state is GoalLoaded) {
           for (final g in state.goals) {
+            if (g.goalType == GoalType.debtRepayment) continue;
             displayGoals.add(
               _LocalGoalItem(
                 id: g.id,
@@ -638,6 +641,7 @@ class _GoalsPageState extends State<GoalsPage> {
           }
         }
         for (final g in _localCreatedGoals) {
+          if (g.type == GoalType.debtRepayment) continue;
           if (!displayGoals.any((d) => d.id == g.id || d.title == g.title)) {
             displayGoals.add(
               _LocalGoalItem(

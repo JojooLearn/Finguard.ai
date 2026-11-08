@@ -11,6 +11,10 @@ class DebtEntity extends Equatable {
   final int dueDay;
   final double paidAmount;
   final bool isCompleted;
+  final double annualInterestRate;
+  final DateTime startDate;
+  final double appliedInterestAmount;
+  final int appliedYears;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -25,12 +29,19 @@ class DebtEntity extends Equatable {
     this.dueDay = 10,
     required this.paidAmount,
     this.isCompleted = false,
+    this.annualInterestRate = 0.0,
+    required this.startDate,
+    this.appliedInterestAmount = 0.0,
+    this.appliedYears = 0,
     required this.createdAt,
     required this.updatedAt,
   });
 
-  double get remainingAmount =>
+  double get remainingPrincipal =>
       (remainingTenorMonths * monthlyPayment).clamp(0.0, double.infinity);
+
+  double get remainingAmount =>
+      (remainingPrincipal + appliedInterestAmount).clamp(0.0, double.infinity);
 
   double get progressRatio {
     if (totalTenorMonths <= 0) return 1.0;
@@ -49,6 +60,10 @@ class DebtEntity extends Equatable {
     int? dueDay,
     double? paidAmount,
     bool? isCompleted,
+    double? annualInterestRate,
+    DateTime? startDate,
+    double? appliedInterestAmount,
+    int? appliedYears,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -64,6 +79,11 @@ class DebtEntity extends Equatable {
       dueDay: dueDay ?? this.dueDay,
       paidAmount: paidAmount ?? this.paidAmount,
       isCompleted: isCompleted ?? this.isCompleted,
+      annualInterestRate: annualInterestRate ?? this.annualInterestRate,
+      startDate: startDate ?? this.startDate,
+      appliedInterestAmount:
+          appliedInterestAmount ?? this.appliedInterestAmount,
+      appliedYears: appliedYears ?? this.appliedYears,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -81,6 +101,10 @@ class DebtEntity extends Equatable {
         dueDay,
         paidAmount,
         isCompleted,
+        annualInterestRate,
+        startDate,
+        appliedInterestAmount,
+        appliedYears,
         createdAt,
         updatedAt,
       ];

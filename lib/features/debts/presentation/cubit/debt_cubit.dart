@@ -22,6 +22,8 @@ class DebtCubit extends Cubit<DebtState> {
     required int remainingTenor,
     required int totalTenor,
     required int dueDay,
+    double annualInterestRate = 0.0,
+    DateTime? startDate,
   }) async {
     final result = await repository.addDebt(
       name: name,
@@ -29,6 +31,8 @@ class DebtCubit extends Cubit<DebtState> {
       remainingTenor: remainingTenor,
       totalTenor: totalTenor,
       dueDay: dueDay,
+      annualInterestRate: annualInterestRate,
+      startDate: startDate,
     );
     result.fold(
       (_) => loadDebts(),

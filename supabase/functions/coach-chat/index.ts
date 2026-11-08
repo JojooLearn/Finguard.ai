@@ -653,6 +653,16 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
             .join("\n")
         : "  (Belum ada target tabungan)";
 
+    const debtsSummary =
+      finContext.debts && finContext.debts.length > 0
+        ? finContext.debts
+            .map(
+              (d) =>
+                `  • ${d.name}: Cicilan Rp${d.monthlyPayment.toLocaleString("id-ID")}/bln (Sisa Tenor: ${d.remainingTenor}/${d.totalTenor} bln). Sisa Utang: Rp${d.remainingAmount.toLocaleString("id-ID")}. Bunga: ${d.annualInterestRate}%/tahun${d.appliedInterestAmount > 0 ? ` (Bunga tahunan +Rp${d.appliedInterestAmount.toLocaleString("id-ID")} bertambah otomatis setelah genap ${d.appliedYears} thn)` : ""}. Jatuh tempo tgl ${d.dueDay} tiap bulan. Mulai: ${d.startDate ? d.startDate.split("T")[0] : "-"}. [Status: ${d.isCompleted ? "Lunas" : "Aktif"}]`,
+            )
+            .join("\n")
+        : "  (Tidak ada komitmen cicilan aktif - Bebas Utang)";
+
     const contributionsSummary =
       finContext.goalContributions && finContext.goalContributions.length > 0
         ? finContext.goalContributions
@@ -793,13 +803,16 @@ ${budgetSummary || "  (Belum ada jatah diatur)"}
 5. CELENGAN & TARGET TABUNGAN (financial_goals):
 ${goalSummary}
 
-6. RIWAYAT SETORAN TABUNGAN TERAKHIR (goal_contributions):
+6. KOMITMEN CICILAN AKTIF & UTANG BERJALAN:
+${debtsSummary}
+
+7. RIWAYAT SETORAN TABUNGAN TERAKHIR (goal_contributions):
 ${contributionsSummary}
 
-7. EVALUASI BULANAN SEBELUMNYA (monthly_reviews):
+8. EVALUASI BULANAN SEBELUMNYA (monthly_reviews):
 ${monthlyReviewSummary}
 
-8. STATUS WAKTU & AKTIVITAS HARIAN (Zona Waktu: Asia/Jakarta, WIB UTC+7):
+9. STATUS WAKTU & AKTIVITAS HARIAN (Zona Waktu: Asia/Jakarta, WIB UTC+7):
 - Tanggal Hari Ini: ${finContext.todayStr} (Hari ke-${finContext.currentDayOfMonth} dari ${finContext.daysInMonth} hari bulan ini)
 - Tanggal Kemarin: ${finContext.yesterdayStr}
 - Zona Waktu Standar: WIB (UTC+7). Jam transaksi tertera dalam WIB.

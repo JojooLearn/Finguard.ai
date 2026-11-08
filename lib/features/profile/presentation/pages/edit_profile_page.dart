@@ -4,7 +4,6 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../../../app/theme/app_typography.dart';
-import '../../../../core/formatters/currency_formatter.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../cubit/profile_cubit.dart';
 import '../cubit/profile_state.dart';
@@ -21,8 +20,6 @@ class EditProfilePage extends StatefulWidget {
 
 class _EditProfilePageState extends State<EditProfilePage> {
   final _nameController = TextEditingController();
-  final _incomeController = TextEditingController();
-  final _debtController = TextEditingController();
 
   int _strictnessLevel = 3;
   bool _initialized = false;
@@ -31,8 +28,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
   @override
   void dispose() {
     _nameController.dispose();
-    _incomeController.dispose();
-    _debtController.dispose();
     super.dispose();
   }
 
@@ -43,38 +38,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
       _nameController.text = p.displayName;
       _userEmail = p.email;
       _strictnessLevel = p.strictnessLevel;
-
-      final incomeFormatted = CurrencyFormatter.format(
-        p.monthlyIncome,
-      ).replaceAll('Rp', '').trim();
-      _incomeController.text = p.monthlyIncome > 0 ? incomeFormatted : '';
-
-      final debtFormatted = CurrencyFormatter.format(
-        p.monthlyDebt,
-      ).replaceAll('Rp', '').trim();
-      _debtController.text = p.monthlyDebt > 0 ? debtFormatted : '';
-
       _initialized = true;
     }
-  }
-
-  double _parse(TextEditingController c) =>
-      double.tryParse(c.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0.0;
-
-  void _formatCurrencyInput(TextEditingController controller, String value) {
-    final clean = value.replaceAll(RegExp(r'[^0-9]'), '');
-    if (clean.isEmpty) {
-      controller.value = const TextEditingValue(text: '');
-      return;
-    }
-    final numVal = double.tryParse(clean) ?? 0.0;
-    final formatted = CurrencyFormatter.format(
-      numVal,
-    ).replaceAll('Rp', '').trim();
-    controller.value = TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
-    );
   }
 
   @override
@@ -169,35 +134,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
                 const SizedBox(height: 24),
 
-                // Kondisi Finansial
-                _buildSectionHeader('Kondisi Finansial'),
-                const SizedBox(height: 10),
-                _buildCardContainer([
-                  _buildFieldLabel('Pemasukan Bulanan Rutin'),
-                  const SizedBox(height: 8),
-                  _buildBorderlessField(
-                    controller: _incomeController,
-                    hint: '5.000.000',
-                    prefixText: 'Rp ',
-                    keyboardType: TextInputType.number,
-                    onChanged: (val) =>
-                        _formatCurrencyInput(_incomeController, val),
-                  ),
-                  const SizedBox(height: 14),
-                  _buildFieldLabel('Total Cicilan Bulanan'),
-                  const SizedBox(height: 8),
-                  _buildBorderlessField(
-                    controller: _debtController,
-                    hint: '0',
-                    prefixText: 'Rp ',
-                    keyboardType: TextInputType.number,
-                    onChanged: (val) =>
-                        _formatCurrencyInput(_debtController, val),
-                  ),
-                ]),
-
-                const SizedBox(height: 24),
-
                 // Karakter Coach AI
                 _buildSectionHeader('Karakter Coach AI'),
                 const SizedBox(height: 4),
@@ -220,15 +156,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       ? null
                       : () async {
                           final name = _nameController.text.trim();
-                          final income = _parse(_incomeController);
-                          final debt = _parse(_debtController);
 
                           final success = await context
                               .read<ProfileCubit>()
                               .updateProfile(
                                 displayName: name.isNotEmpty ? name : null,
-                                monthlyIncome: income,
-                                monthlyDebt: debt,
                                 strictnessLevel: _strictnessLevel,
                               );
 

@@ -28,6 +28,10 @@ class DebtRepositoryImpl implements DebtRepository {
           int total = 1;
           int due = 10;
           double monthly = 0.0;
+          double annualRate = 0.0;
+          DateTime? startDate;
+          double appliedInterest = 0.0;
+          int appliedYears = 0;
 
           if (json['description'] != null &&
               json['description'].toString().isNotEmpty) {
@@ -38,17 +42,79 @@ class DebtRepositoryImpl implements DebtRepository {
                 remaining = (meta['remaining_tenor'] as num?)?.toInt() ?? 1;
                 total = (meta['total_tenor'] as num?)?.toInt() ?? 1;
                 due = (meta['due_day'] as num?)?.toInt() ?? 10;
+                annualRate =
+                    (meta['annual_interest_rate'] as num?)?.toDouble() ?? 0.0;
+                if (meta['start_date'] != null) {
+                  startDate =
+                      DateTime.tryParse(meta['start_date'].toString());
+                }
+                appliedInterest =
+                    (meta['applied_interest_amount'] as num?)?.toDouble() ??
+                        0.0;
+                appliedYears = (meta['applied_years'] as num?)?.toInt() ?? 0;
               }
             } catch (_) {}
           }
 
-          final totalAmt = (json['target_amount'] as num).toDouble();
+          final createdAt = DateTime.parse(json['created_at']).toLocal();
+          final effectiveStart = startDate ?? createdAt;
+          final now = DateTime.now();
+
+          // Hitung tahun penuh yang telah berlalu sejak tanggal mulai cicilan
+          int elapsedYears = now.year - effectiveStart.year;
+          if (now.month < effectiveStart.month ||
+              (now.month == effectiveStart.month &&
+                  now.day < effectiveStart.day)) {
+            elapsedYears--;
+          }
+          elapsedYears = elapsedYears.clamp(0, 100);
+
+          double totalAmt = (json['target_amount'] as num).toDouble();
           final paidAmt = (json['current_amount'] as num?)?.toDouble() ?? 0.0;
           if (monthly == 0.0 && total > 0) {
             monthly = totalAmt / total;
           }
 
           final statusStr = json['status'] ?? 'active';
+          final isCompleted = statusStr == 'completed' || remaining <= 0;
+
+          // Jika sudah genap 1 tahun atau lebih dan belum diaplikasikan bunga tahunannya:
+          if (elapsedYears > appliedYears && annualRate > 0 && !isCompleted) {
+            final yearsToAdd = elapsedYears - appliedYears;
+            double newlyAddedInterest = 0.0;
+            double currentRem = (remaining * monthly) + appliedInterest;
+            for (int y = 0; y < yearsToAdd; y++) {
+              final yearInterest =
+                  (currentRem * (annualRate / 100.0)).roundToDouble();
+              newlyAddedInterest += yearInterest;
+              currentRem += yearInterest;
+            }
+
+            appliedInterest += newlyAddedInterest;
+            appliedYears = elapsedYears;
+            totalAmt += newlyAddedInterest;
+
+            // Simpan pembaruan bunga dan sisa cicilan ke database Supabase
+            try {
+              final updatedMeta = jsonEncode({
+                'monthly_payment': monthly,
+                'remaining_tenor': remaining,
+                'total_tenor': total,
+                'due_day': due,
+                'annual_interest_rate': annualRate,
+                'start_date': effectiveStart.toIso8601String(),
+                'applied_interest_amount': appliedInterest,
+                'applied_years': appliedYears,
+                'last_interest_applied_at': now.toIso8601String(),
+              });
+
+              client.from('financial_goals').update({
+                'target_amount': totalAmt,
+                'description': updatedMeta,
+                'updated_at': now.toIso8601String(),
+              }).eq('id', json['id']).then((_) {}).catchError((_) {});
+            } catch (_) {}
+          }
 
           return DebtEntity(
             id: json['id'],
@@ -60,8 +126,12 @@ class DebtRepositoryImpl implements DebtRepository {
             totalTenorMonths: total,
             dueDay: due,
             paidAmount: paidAmt,
-            isCompleted: statusStr == 'completed' || remaining <= 0,
-            createdAt: DateTime.parse(json['created_at']).toLocal(),
+            isCompleted: isCompleted,
+            annualInterestRate: annualRate,
+            startDate: effectiveStart,
+            appliedInterestAmount: appliedInterest,
+            appliedYears: appliedYears,
+            createdAt: createdAt,
             updatedAt: DateTime.parse(json['updated_at']).toLocal(),
           );
         }).toList();
@@ -85,8 +155,34 @@ class DebtRepositoryImpl implements DebtRepository {
     required int remainingTenor,
     required int totalTenor,
     required int dueDay,
+    double annualInterestRate = 0.0,
+    DateTime? startDate,
   }) async {
-    final totalAmount = monthlyPayment * totalTenor;
+    final effectiveStart = startDate ?? DateTime.now();
+    final now = DateTime.now();
+
+    // Periksa apakah tanggal mulai cicilan sudah melewati 1 tahun atau lebih
+    int elapsedYears = now.year - effectiveStart.year;
+    if (now.month < effectiveStart.month ||
+        (now.month == effectiveStart.month && now.day < effectiveStart.day)) {
+      elapsedYears--;
+    }
+    elapsedYears = elapsedYears.clamp(0, 100);
+
+    double appliedInterest = 0.0;
+    int appliedYears = 0;
+    if (elapsedYears >= 1 && annualInterestRate > 0) {
+      double currentRem = monthlyPayment * remainingTenor;
+      for (int y = 0; y < elapsedYears; y++) {
+        final yearInterest =
+            (currentRem * (annualInterestRate / 100.0)).roundToDouble();
+        appliedInterest += yearInterest;
+        currentRem += yearInterest;
+      }
+      appliedYears = elapsedYears;
+    }
+
+    final totalAmount = (monthlyPayment * totalTenor) + appliedInterest;
     final paidAmount = (totalTenor - remainingTenor).clamp(0, totalTenor) * monthlyPayment;
 
     final meta = jsonEncode({
@@ -94,6 +190,10 @@ class DebtRepositoryImpl implements DebtRepository {
       'remaining_tenor': remainingTenor,
       'total_tenor': totalTenor,
       'due_day': dueDay,
+      'annual_interest_rate': annualInterestRate,
+      'start_date': effectiveStart.toIso8601String(),
+      'applied_interest_amount': appliedInterest,
+      'applied_years': appliedYears,
     });
 
     final localEntity = DebtEntity(
@@ -107,6 +207,10 @@ class DebtRepositoryImpl implements DebtRepository {
       dueDay: dueDay,
       paidAmount: paidAmount,
       isCompleted: remainingTenor <= 0,
+      annualInterestRate: annualInterestRate,
+      startDate: effectiveStart,
+      appliedInterestAmount: appliedInterest,
+      appliedYears: appliedYears,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
@@ -138,6 +242,10 @@ class DebtRepositoryImpl implements DebtRepository {
           dueDay: dueDay,
           paidAmount: paidAmount,
           isCompleted: remainingTenor <= 0,
+          annualInterestRate: annualInterestRate,
+          startDate: effectiveStart,
+          appliedInterestAmount: appliedInterest,
+          appliedYears: appliedYears,
           createdAt: DateTime.parse(inserted['created_at']).toLocal(),
           updatedAt: DateTime.parse(inserted['updated_at']).toLocal(),
         );
@@ -183,6 +291,10 @@ class DebtRepositoryImpl implements DebtRepository {
           'remaining_tenor': newRemaining,
           'total_tenor': d.totalTenorMonths,
           'due_day': d.dueDay,
+          'annual_interest_rate': d.annualInterestRate,
+          'start_date': d.startDate.toIso8601String(),
+          'applied_interest_amount': d.appliedInterestAmount,
+          'applied_years': d.appliedYears,
         });
 
         // 1. Update goal record

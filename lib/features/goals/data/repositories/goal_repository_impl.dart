@@ -20,6 +20,7 @@ class GoalRepositoryImpl implements GoalRepository {
             .from('financial_goals')
             .select()
             .eq('user_id', user.id)
+            .neq('goal_type', 'debt_repayment')
             .order('created_at', ascending: false);
 
         final goals = (response as List).map((json) {
