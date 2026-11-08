@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/financial_calculator.dart';
 import '../../domain/entities/stock_signal.dart';
@@ -6,7 +7,7 @@ import '../models/stock_signal_model.dart';
 
 abstract class StockSignalRemoteDataSource {
   Future<List<StockSignalModel>> getLatestSignals({
-    int limit = 10,
+    int limit = 5,
     bool forceRefresh = false,
   });
   Future<StockSignalModel?> getSignalByTicker(String ticker);
@@ -193,13 +194,181 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
     return trending;
   }
 
+  /// Fetches real-time live Top Gainers on Bursa Efek Indonesia (IDX) from TradingView Scanner
+  Future<List<StockSignalModel>> _fetchLiveTradingViewTopGainers({
+    int limit = 5,
+  }) async {
+    final httpClient = HttpClient();
+    httpClient.connectionTimeout = const Duration(seconds: 5);
+
+    try {
+      final req = await httpClient.postUrl(
+        Uri.parse('https://scanner.tradingview.com/indonesia/scan'),
+      );
+      req.headers.set('Content-Type', 'application/json');
+      req.headers.set(
+        'User-Agent',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      );
+
+      final payload = jsonEncode({
+        'filter': [
+          {'left': 'change', 'operation': 'greater', 'right': 0},
+          {'left': 'volume', 'operation': 'greater', 'right': 250000},
+        ],
+        'columns': [
+          'name',
+          'close',
+          'change',
+          'volume',
+          'Recommend.All',
+          'description',
+          'RSI',
+          'SMA50',
+        ],
+        'sort': {'sortBy': 'change', 'sortOrder': 'desc'},
+        'range': [0, limit],
+      });
+
+      req.write(payload);
+      final res = await req.close().timeout(const Duration(seconds: 6));
+
+      if (res.statusCode == 200) {
+        final body = await utf8.decodeStream(res);
+        final json = jsonDecode(body) as Map<String, dynamic>;
+        final data = json['data'] as List<dynamic>? ?? [];
+
+        final now = DateTime.now();
+        final List<StockSignalModel> liveSignals = [];
+
+        for (int i = 0; i < data.length; i++) {
+          final entry = data[i] as Map<String, dynamic>;
+          final cols = entry['d'] as List<dynamic>;
+
+          final ticker = (cols[0] as String).toUpperCase();
+          final closePrice = (cols[1] as num).toDouble();
+          final changePct = (cols[2] as num).toDouble();
+          final volume = (cols[3] as num).toDouble();
+          final recAll = cols[4] as num?;
+          final companyName = (cols[5] as String?) ?? ticker;
+
+          StockSignalType signalType;
+          if (recAll != null && recAll >= 0.5) {
+            signalType = StockSignalType.strongBuy;
+          } else if ((recAll != null && recAll >= 0.05) || changePct >= 5.0) {
+            signalType = StockSignalType.buy;
+          } else {
+            signalType = StockSignalType.buy;
+          }
+
+          final volFormatted = volume >= 1000000
+              ? '${(volume / 1000000).toStringAsFixed(1)}M'
+              : '${(volume / 1000).toStringAsFixed(0)}K';
+
+          final signStr = changePct >= 0 ? '+' : '';
+          final notes =
+              'Top Gainer ($signStr${changePct.toStringAsFixed(1)}%) • Vol $volFormatted Lot • $companyName';
+
+          liveSignals.add(
+            StockSignalModel(
+              id: 'tv_${ticker}_${now.millisecondsSinceEpoch}_$i',
+              ticker: ticker,
+              signalType: signalType,
+              priceAtSignal: closePrice,
+              timeframe: '1D',
+              analysisNotes: notes,
+              validUntil: now.add(const Duration(hours: 12)),
+              createdAt: now,
+            ),
+          );
+        }
+
+        if (liveSignals.isNotEmpty) {
+          return liveSignals;
+        }
+      }
+    } catch (_) {
+      // Fallback gracefully on timeout or network error
+    } finally {
+      httpClient.close();
+    }
+    return [];
+  }
+
   @override
   Future<List<StockSignalModel>> getLatestSignals({
-    int limit = 10,
+    int limit = 5,
     bool forceRefresh = false,
   }) async {
     final now = DateTime.now();
 
+    // 1. If not forcing refresh, check database cache
+    if (!forceRefresh) {
+      try {
+        final response = await client
+            .from('stock_signals')
+            .select()
+            .order('created_at', ascending: false)
+            .limit(limit);
+
+        final List<StockSignalModel> existing = (response as List)
+            .map((json) =>
+                StockSignalModel.fromJson(json as Map<String, dynamic>))
+            .toList();
+
+        // Fresh (< 15 mins) and has enough signals
+        if (existing.length >= limit &&
+            now.difference(existing.first.createdAt).inMinutes < 15) {
+          return existing;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fetch live real-time Top Gainers from TradingView Scanner
+    final liveSignals = await _fetchLiveTradingViewTopGainers(limit: limit);
+
+    if (liveSignals.isNotEmpty) {
+      // 3. Synchronize to Supabase database table `stock_signals`
+      try {
+        await client.from('stock_signals').delete().neq('ticker', '');
+      } catch (_) {}
+
+      try {
+        final toInsert = liveSignals.map((s) => {
+          'ticker': s.ticker,
+          'signal_type': s.signalType.toDbString(),
+          'price_at_signal': s.priceAtSignal,
+          'timeframe': s.timeframe,
+          'analysis_notes': s.analysisNotes,
+          'valid_until': s.validUntil.toIso8601String(),
+          'created_at': s.createdAt.toIso8601String(),
+        }).toList();
+
+        await client.from('stock_signals').insert(toInsert);
+      } catch (_) {
+        // If direct insert encounters RLS, fallback to server webhook with service role
+        for (final item in liveSignals) {
+          try {
+            await client.functions.invoke(
+              'stock-signals-webhook',
+              headers: {'X-TV-Secret': 'finguard_tradingview_secret_2026'},
+              body: {
+                'ticker': item.ticker,
+                'signal_type': item.signalType.toDbString(),
+                'price_at_signal': item.priceAtSignal,
+                'timeframe': item.timeframe,
+                'analysis_notes': item.analysisNotes,
+                'valid_until': item.validUntil.toIso8601String(),
+              },
+            );
+          } catch (_) {}
+        }
+      }
+
+      return liveSignals;
+    }
+
+    // 4. Fallback: Read whatever is in Supabase
     try {
       final response = await client
           .from('stock_signals')
@@ -207,73 +376,17 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
           .order('created_at', ascending: false)
           .limit(limit);
 
-      final List<StockSignalModel> existing = (response as List)
-          .map((json) => StockSignalModel.fromJson(json as Map<String, dynamic>))
+      final List<StockSignalModel> cached = (response as List)
+          .map((json) =>
+              StockSignalModel.fromJson(json as Map<String, dynamic>))
           .toList();
 
-      // Check if market signals are stale (older than 24h) or empty, or forceRefresh requested
-      final isStale = existing.isEmpty ||
-          now.difference(existing.first.createdAt).inHours >= 24;
-
-      if (forceRefresh || isStale || existing.length < 5) {
-        final trending = _generateTodayTrendingSignals(now);
-        final validUntil = now.add(const Duration(days: 3)).toIso8601String();
-        final existingTickers =
-            existing.map((e) => e.ticker.toUpperCase()).toSet();
-
-        // Prepare new trending rows to insert into database
-        final toInsert = trending.where((t) {
-          final tTicker = (t['ticker'] as String).toUpperCase();
-          if (forceRefresh) return true;
-          return !existingTickers.contains(tTicker);
-        }).map((m) => {
-              'ticker': m['ticker'],
-              'signal_type': m['signal_type'],
-              'price_at_signal': m['price_at_signal'],
-              'timeframe': m['timeframe'],
-              'analysis_notes': m['analysis_notes'],
-              'valid_until': validUntil,
-              'created_at': now.toIso8601String(),
-            }).toList();
-
-        if (toInsert.isNotEmpty) {
-          try {
-            await client.from('stock_signals').insert(toInsert);
-          } catch (_) {
-            // If client-side direct insert fails (e.g. RLS), insert via server webhook with service role
-            for (final item in toInsert) {
-              try {
-                await client.functions.invoke(
-                  'stock-signals-webhook',
-                  headers: {'X-TV-Secret': 'finguard_tradingview_secret_2026'},
-                  body: item,
-                );
-              } catch (_) {}
-            }
-          }
-        }
-
-        // Re-fetch sorted by latest created_at descending
-        final refreshed = await client
-            .from('stock_signals')
-            .select()
-            .order('created_at', ascending: false)
-            .limit(limit);
-
-        final list = (refreshed as List)
-            .map((json) =>
-                StockSignalModel.fromJson(json as Map<String, dynamic>))
-            .toList();
-
-        if (list.isNotEmpty) return list;
-      }
-
-      if (existing.isNotEmpty) {
-        return existing;
+      if (cached.isNotEmpty) {
+        return cached;
       }
     } catch (_) {}
 
-    // Fallback: Generate today's trending signals in memory
+    // 5. Fallback in-memory signals if completely offline
     final fallbackList = _generateTodayTrendingSignals(now).take(limit);
     return fallbackList.map((m) {
       return StockSignalModel(
@@ -283,7 +396,7 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
         priceAtSignal: (m['price_at_signal'] as num).toDouble(),
         timeframe: m['timeframe'] as String? ?? '1D',
         analysisNotes: m['analysis_notes'] as String?,
-        validUntil: now.add(const Duration(days: 3)),
+        validUntil: now.add(const Duration(days: 1)),
         createdAt: now,
       );
     }).toList();

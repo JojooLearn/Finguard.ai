@@ -5,7 +5,7 @@ import '../entities/stock_signal.dart';
 abstract class StockSignalRepository {
   /// Fetches the latest stock signals, ordered by creation time descending.
   Future<Result<List<StockSignal>>> getLatestSignals({
-    int limit = 10,
+    int limit = 5,
     bool forceRefresh = false,
   });
 

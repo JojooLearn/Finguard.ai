@@ -12,7 +12,7 @@ class StockSignalRepositoryImpl implements StockSignalRepository {
 
   @override
   Future<Result<List<StockSignal>>> getLatestSignals({
-    int limit = 10,
+    int limit = 5,
     bool forceRefresh = false,
   }) async {
     try {

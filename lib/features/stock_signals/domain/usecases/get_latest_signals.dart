@@ -8,7 +8,7 @@ class GetLatestSignals {
   GetLatestSignals(this.repository);
 
   Future<Result<List<StockSignal>>> call({
-    int limit = 10,
+    int limit = 5,
     bool forceRefresh = false,
   }) {
     return repository.getLatestSignals(
