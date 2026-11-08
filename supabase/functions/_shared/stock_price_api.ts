@@ -43,8 +43,8 @@ const AMBIGUOUS_TICKERS = new Set([
   "ANDA", "BELI", "BUKA", "BACA", "SATU", "DUA", "TIGA", "UANG", "DANA", "KOTA", "BALI", "JAWA", "BUMI", "DEWA", "RAJA", "CUAN", "EMAS", "RATU", "GOLF", "WIFI", "FILM", "BANK", "LIFE", "HOME", "CARE", "FOOD", "GOOD", "FAST", "SAFE", "TRUE", "NICE", "BEST", "STAR", "MEGA", "DAYA"
 ]);
 
-// Tickers that can be matched directly even without "saham" prefix because investors type them directly
-const UNAMBIGUOUS_POPULAR_TICKERS = new Set(["BUMI", "DEWA", "RAJA", "CUAN", "RATU", "WIFI", "EMAS", "GOLF", "MEGA"]);
+// Tickers that can be matched directly even without "saham" prefix because investors type them directly in uppercase
+const UNAMBIGUOUS_POPULAR_TICKERS = new Set(["DEWA", "BUMI", "RAJA", "RATU"]);
 
 const KNOWN_MARKET_TICKERS = new Set([
   // Top IDX Banking & Financials

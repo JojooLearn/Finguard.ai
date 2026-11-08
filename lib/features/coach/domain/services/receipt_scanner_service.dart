@@ -62,14 +62,14 @@ class ReceiptScannerService {
     return null; // Valid
   }
 
-  /// Ambil gambar dari Kamera atau Galeri dengan kompresi awal ImagePicker
+  /// Ambil gambar dari Kamera atau Galeri dengan kompresi awal ImagePicker (max 800x800, quality 70)
   Future<XFile?> pickReceiptImage(ImageSource source) async {
     try {
       final XFile? image = await _picker.pickImage(
         source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 80,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 70,
       );
       return image;
     } catch (_) {
@@ -77,16 +77,25 @@ class ReceiptScannerService {
     }
   }
 
-  /// Kompresi gambar lebih lanjut (max 1024x1024, quality 80)
+  /// Kompresi gambar agresif di sisi klien (max 800x800, quality 70%, target < 200 KB)
   Future<Uint8List> compressImageBytes(Uint8List rawBytes) async {
     try {
-      final compressed = await FlutterImageCompress.compressWithList(
+      var compressed = await FlutterImageCompress.compressWithList(
         rawBytes,
-        minWidth: 1024,
-        minHeight: 1024,
-        quality: 80,
+        minWidth: 800,
+        minHeight: 800,
+        quality: 70,
         format: CompressFormat.jpeg,
       );
+      if (compressed.length > 200 * 1024) {
+        compressed = await FlutterImageCompress.compressWithList(
+          Uint8List.fromList(compressed),
+          minWidth: 720,
+          minHeight: 720,
+          quality: 55,
+          format: CompressFormat.jpeg,
+        );
+      }
       if (compressed.isNotEmpty) {
         return Uint8List.fromList(compressed);
       }

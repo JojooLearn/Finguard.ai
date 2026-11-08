@@ -9,8 +9,13 @@ import '../../../../core/formatters/currency_formatter.dart';
 import '../../../../core/formatters/currency_input_formatter.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/status_chip.dart';
+import '../../../budgets/presentation/cubit/budget_cubit.dart';
 import '../../../profile/presentation/cubit/profile_cubit.dart';
 import '../../../profile/presentation/cubit/profile_state.dart';
+import '../../../transactions/domain/entities/category_entity.dart';
+import '../../../transactions/domain/entities/transaction_entity.dart';
+import '../../../transactions/presentation/cubit/transaction_cubit.dart';
+import '../../../transactions/presentation/cubit/transaction_state.dart';
 import '../cubit/debt_cubit.dart';
 import '../cubit/debt_state.dart';
 import '../../domain/entities/debt_entity.dart';
@@ -336,15 +341,19 @@ class _ActiveDebtsView extends StatelessWidget {
                     ) ?? 0.0;
 
                     if (name.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Masukkan nama cicilan')),
-                      );
+                      ScaffoldMessenger.of(context)
+                        ..clearSnackBars()
+                        ..showSnackBar(
+                          const SnackBar(content: Text('Masukkan nama cicilan')),
+                        );
                       return;
                     }
                     if (payment <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Nominal cicilan per bulan harus lebih dari 0')),
-                      );
+                      ScaffoldMessenger.of(context)
+                        ..clearSnackBars()
+                        ..showSnackBar(
+                          const SnackBar(content: Text('Nominal cicilan per bulan harus lebih dari 0')),
+                        );
                       return;
                     }
 
@@ -359,7 +368,9 @@ class _ActiveDebtsView extends StatelessWidget {
                         );
 
                     Navigator.pop(sheetCtx);
-                    context.read<ProfileCubit>().loadProfile();
+                    try {
+                      context.read<ProfileCubit>().loadProfile();
+                    } catch (_) {}
                   },
                 ),
               ],
@@ -428,15 +439,25 @@ class _ActiveDebtsView extends StatelessWidget {
               Navigator.pop(dialogCtx);
               final ok = await context.read<DebtCubit>().payInstallment(debt.id);
               if (ok && context.mounted) {
-                context.read<ProfileCubit>().loadProfile();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(debt.remainingTenorMonths <= 1
-                        ? 'Alhamdulillah! Cicilan ${debt.name} telah lunas sepenuhnya!'
-                        : 'Pembayaran cicilan ${debt.name} berhasil dicatat!'),
-                    backgroundColor: AppColors.primary,
-                  ),
-                );
+                try {
+                  context.read<ProfileCubit>().loadProfile();
+                } catch (_) {}
+                try {
+                  context.read<TransactionCubit>().loadTransactions();
+                } catch (_) {}
+                try {
+                  context.read<BudgetCubit>().loadBudgets();
+                } catch (_) {}
+                ScaffoldMessenger.of(context)
+                  ..clearSnackBars()
+                  ..showSnackBar(
+                    SnackBar(
+                      content: Text(debt.remainingTenorMonths <= 1
+                          ? 'Alhamdulillah! Cicilan ${debt.name} telah lunas sepenuhnya!'
+                          : 'Pembayaran cicilan ${debt.name} berhasil dicatat!'),
+                      backgroundColor: AppColors.primary,
+                    ),
+                  );
               }
             },
             child: const Text('Bayar Sekarang',
@@ -497,6 +518,22 @@ class _ActiveDebtsView extends StatelessWidget {
               if (profState is ProfileLoaded) {
                 income = profState.profile.monthlyIncome;
               }
+              try {
+                final txState = context.watch<TransactionCubit>().state;
+                if (txState is TransactionLoaded) {
+                  final now = DateTime.now();
+                  final txIncome = txState.transactions
+                      .where((tx) =>
+                          tx.transactionType == TransactionType.income &&
+                          tx.status == TransactionStatus.confirmed &&
+                          tx.transactionDate.year == now.year &&
+                          tx.transactionDate.month == now.month)
+                      .fold<double>(0.0, (s, tx) => s + tx.amount);
+                  if (txIncome > income) {
+                    income = txIncome;
+                  }
+                }
+              } catch (_) {}
 
               final dsrPct = income > 0 ? (totalMonthly / income) * 100 : 0.0;
               final isDsrSafe = dsrPct <= 30.0;

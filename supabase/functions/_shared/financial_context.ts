@@ -108,6 +108,9 @@ export interface UserFinancialContext {
   riskProfile: string;
   strictnessLevel: number;
   availableCash: number;
+  availableFreeCash: number;
+  monthlySavingsContributions: number;
+  unpaidMonthlyDebt: number;
   hasVerifiedIncome: boolean;
   accounts: AccountItem[];
   activeBudgets: Array<{
@@ -554,19 +557,65 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
   const dailyAverageExpense = monthlyTotalExpense / elapsedDays;
   const monthlyNetCashFlow = monthlyTotalIncome - monthlyTotalExpense;
 
+  const effectiveIncome = Math.max(monthlyIncome, monthlyTotalIncome);
+  const effectiveHasVerifiedIncome = hasVerifiedIncome || effectiveIncome > 0;
+  const effectiveConsumptionExpense =
+    monthlyTotalExpense > 0
+      ? monthlyTotalExpense
+      : Number(fp.essential_monthly_expenses || 0);
+
+  // Calculate unpaid monthly debt for this month (prevent double counting if already paid via transaction)
+  const currentMonthNotes = recentTransactions
+    .filter((tx) => tx.type === "expense" && tx.date >= currentMonthStart && tx.date <= currentMonthEnd)
+    .map((tx) => tx.note.toLowerCase());
+
+  const activeDebtsList = debts.filter((d) => !d.isCompleted && d.remainingTenor > 0);
+  let unpaidMonthlyDebt = 0;
+  if (activeDebtsList.length > 0) {
+    for (const d of activeDebtsList) {
+      const paidThisMonth = currentMonthNotes.some((n) => n.includes(`bayar ${d.name.toLowerCase()}`));
+      if (!paidThisMonth) {
+        unpaidMonthlyDebt += d.monthlyPayment;
+      }
+    }
+  } else {
+    unpaidMonthlyDebt = Number(fp.monthly_debt_payments || 0);
+  }
+
+  // Calculate monthly savings/emergency fund contributions locked this month
+  const currentMonthContribTotal = goalContributions
+    .filter((gc) => gc.date >= currentMonthStart && gc.date <= currentMonthEnd)
+    .reduce((acc, gc) => acc + gc.amount, 0);
+  const totalGoalCurrent = goals.reduce((acc, g) => acc + g.current, 0);
+  const monthlySavingsContributions =
+    currentMonthContribTotal > 0 ? currentMonthContribTotal : totalGoalCurrent;
+
+  // Golden Financial Rule:
+  // Uang Dingin Siap Pakai = Total Pemasukan - Total Pengeluaran Konsumsi - Kewajiban Cicilan Belum Dibayar Bulan Ini - Total Setoran Tabungan/Dana Darurat Bulan Ini
+  const availableFreeCash = Math.max(
+    0,
+    effectiveIncome - effectiveConsumptionExpense - unpaidMonthlyDebt - monthlySavingsContributions,
+  );
+
   return {
     displayName: profileRes.data?.display_name || "Sobat FinGuard",
-    monthlyIncome,
+    monthlyIncome: effectiveIncome,
     incomeFrequency: fp.income_frequency || "monthly",
     dependentsCount: Number(fp.dependents_count || 0),
-    essentialExpenses: Number(fp.essential_monthly_expenses || 0),
-    monthlyDebt: Number(fp.monthly_debt_payments || 0),
-    initialEmergencyFund: Number(fp.current_emergency_fund || 0),
+    essentialExpenses: effectiveConsumptionExpense,
+    monthlyDebt: unpaidMonthlyDebt,
+    initialEmergencyFund: Math.max(
+      Number(fp.current_emergency_fund || 0),
+      goals.filter((g) => g.goalType === "emergency_fund").reduce((s, g) => s + g.current, 0),
+    ),
     primaryGoalSummary: fp.primary_goal_summary || "",
     riskProfile: fp.risk_profile || "moderate",
     strictnessLevel: Number(fp.strictness_level || 3),
     availableCash: actualLiquidCash,
-    hasVerifiedIncome,
+    availableFreeCash,
+    monthlySavingsContributions,
+    unpaidMonthlyDebt,
+    hasVerifiedIncome: effectiveHasVerifiedIncome,
     accounts,
     activeBudgets: budgets,
     goals,

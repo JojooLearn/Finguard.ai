@@ -505,10 +505,11 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
       /\b(ipo|e-ipo|eipo|penjatahan|allotment|underwriter|uw|prospektus|bookbuilding|offering|listing\s+perdana|saham\s+perdana|wbsa|jeli|emmi)\b/i.test(message);
 
     // Detect Market Sentiment, Viral Stocks, MSCI Rebalancing, Broker Flow, Order Book, or Macro News queries
+    // Lazy-loaded ONLY when user explicitly asks about stocks/bursa/market sentiment
     const isMarketNewsQuery =
       isGeneralStockRecommendationQuery ||
       initialCandidateTickers.length > 0 ||
-      /\b(berita|sentimen|pasar|market|ihsg|msci|ftse|viral|ramai|rame|trending|asing|foreign|net\s*buy|net\s*sell|bandar|bandarmologi|broker|order\s*book|bid|offer|haka|haki|ara|arb|dividen|makro|suku\s*bunga|bi\s*rate|inflasi|rupiah|saham|sahan|bursa)\b/i.test(message);
+      /\b(ihsg|msci|ftse|bandarmologi|order\s*book|haka|haki|ara|arb|dividen|bi\s*rate|inflasi|saham|sahan|bursa|emiten)\b/i.test(message);
 
     // For general recommendation queries, fetch live On-Demand data for a hybrid basket of top IDX stocks outside/across the DB
     const tickersToFetchOnDemand = initialCandidateTickers.length > 0
@@ -696,7 +697,7 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     const txLedgerFormatted =
       finContext.recentTransactions && finContext.recentTransactions.length > 0
         ? finContext.recentTransactions
-            .slice(0, 35)
+            .slice(0, 10)
             .map((tx) => {
               const sign = tx.type === "income" ? "+" : "-";
               const noteStr = tx.note ? ` ("${tx.note}")` : "";
@@ -736,7 +737,7 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     const foodSpent = foodBudget ? foodBudget.spent : 0;
     const foodRemaining = Math.max(0, foodLimit - foodSpent);
 
-    const freeCash = finContext.monthlyIncome - finContext.essentialExpenses - finContext.monthlyDebt;
+    const freeCash = finContext.availableFreeCash;
 
     const stockSignalsSummary =
       finContext.stockSignals && finContext.stockSignals.length > 0
@@ -786,9 +787,10 @@ DATABASE KEUANGAN LENGKAP PENGGUNA (TERHUBUNG KE SEMUA TABEL):
 - Fokus Tujuan Utama: ${finContext.primaryGoalSummary || "Belum ditentukan"}
 - Dana Darurat Awal: Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}
 - Pemasukan Bulanan: Rp${finContext.monthlyIncome.toLocaleString("id-ID")}
-- Kebutuhan Pokok Bulanan: Rp${finContext.essentialExpenses.toLocaleString("id-ID")}
-- Cicilan Utang Bulanan: Rp${finContext.monthlyDebt.toLocaleString("id-ID")}
-- Uang Dingin Bulanan (Sisa setelah kebutuhan & utang): Rp${freeCash.toLocaleString("id-ID")}
+- Kebutuhan Pokok & Konsumsi Bulanan: Rp${finContext.essentialExpenses.toLocaleString("id-ID")}
+- Komitmen Cicilan Utang Bulanan Belum Dibayar: Rp${finContext.monthlyDebt.toLocaleString("id-ID")}
+- Setoran Tabungan & Dana Darurat Bulan Ini: Rp${finContext.monthlySavingsContributions.toLocaleString("id-ID")}
+- Uang Dingin Siap Pakai Bulan Ini (Pemasukan - Konsumsi - Cicilan - Setoran Tabungan): Rp${freeCash.toLocaleString("id-ID")}
 - Total Saldo Kas Cair Tersedia: Rp${finContext.availableCash.toLocaleString("id-ID")}
 
 2. DAFTAR REKENING & DOMPET (accounts):

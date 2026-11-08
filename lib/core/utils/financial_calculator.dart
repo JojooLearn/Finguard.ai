@@ -12,6 +12,30 @@ class FinancialCalculator {
     return totalIncome - totalExpense;
   }
 
+  /// 10.1b Available Free Cash (Uang Dingin Siap Pakai - Golden Financial Rule)
+  /// Uang Dingin Siap Pakai = Total Pemasukan - Total Pengeluaran Konsumsi
+  ///   - Kewajiban Cicilan Belum Dibayar Bulan Ini - Total Setoran Tabungan/Dana Darurat Bulan Ini
+  static double calculateAvailableFreeCash({
+    required double totalIncome,
+    required double totalConsumptionExpense,
+    double unpaidMonthlyDebt = 0.0,
+    double unpaidMonthlyDebtObligation = 0.0,
+    double monthlySavingsContribution = 0.0,
+    double monthlySavingsContributions = 0.0,
+  }) {
+    final effectiveDebt = unpaidMonthlyDebt > 0
+        ? unpaidMonthlyDebt
+        : unpaidMonthlyDebtObligation;
+    final effectiveSavings = monthlySavingsContribution > 0
+        ? monthlySavingsContribution
+        : monthlySavingsContributions;
+    final raw = totalIncome -
+        totalConsumptionExpense -
+        effectiveDebt -
+        effectiveSavings;
+    return math.max(0.0, raw);
+  }
+
   /// 10.2 Budget Usage Percentage
   /// budget_usage_percent = (actual_expense / budget_limit) * 100
   /// Returns null if limit <= 0 to avoid division by zero

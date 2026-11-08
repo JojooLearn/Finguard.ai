@@ -230,12 +230,14 @@ class _CoachPageState extends State<CoachPage> {
       if (validationError != null) {
         setState(() => _isProcessingImage = false);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(validationError),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(validationError),
+              backgroundColor: AppColors.danger,
+            ),
+          );
         return;
       }
 
@@ -248,12 +250,14 @@ class _CoachPageState extends State<CoachPage> {
     } catch (e) {
       setState(() => _isProcessingImage = false);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal memilih nota: $e'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Gagal memilih nota: $e'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
     }
   }
 
@@ -277,16 +281,16 @@ class _CoachPageState extends State<CoachPage> {
       final receiptBase64 = base64Encode(receiptBytes);
       final userId =
           Supabase.instance.client.auth.currentUser?.id ?? 'anonymous';
-      String storagePath =
+      final storagePath =
           '$userId/${DateTime.now().millisecondsSinceEpoch}_receipt.jpg';
-      try {
-        storagePath = await _scannerService.uploadReceiptToStorage(
-          bytes: receiptBytes,
-          userId: userId,
-        );
-      } catch (_) {
-        // Fallback seamlessly using inline base64 payload if Storage bucket upload fails
-      }
+
+      // Non-blocking background upload to Supabase Storage while AI OCR runs immediately via inline base64
+      _scannerService
+          .uploadReceiptToStorage(
+            bytes: receiptBytes,
+            userId: userId,
+          )
+          .catchError((_) => storagePath);
 
       if (!mounted) return;
       context.read<CoachCubit>().sendReceiptScan(
@@ -807,11 +811,17 @@ class _CoachPageState extends State<CoachPage> {
   }
 
   Widget _buildParagraphItem(String text) {
+    final headerMatch = RegExp(r'^#{1,4}\s+(.*)$').firstMatch(text.trim());
+    final cleanedText =
+        headerMatch != null ? headerMatch.group(1)!.trim() : text;
+    final isHeader = headerMatch != null;
+
     return _buildRichFormattedText(
-      text,
-      baseStyle: const TextStyle(
+      cleanedText,
+      baseStyle: TextStyle(
         color: AppColors.textPrimary,
         fontSize: 14,
+        fontWeight: isHeader ? FontWeight.w700 : FontWeight.w400,
         height: 1.52,
         letterSpacing: 0.1,
       ),
@@ -1166,6 +1176,12 @@ class _CoachPageState extends State<CoachPage> {
   }
 
   Widget _buildTypingIndicator({bool isScanningReceipt = false}) {
+    const scanSteps = [
+      'Mengompresi gambar...',
+      'Membaca rincian struk...',
+      'Menyiapkan konfirmasi...',
+    ];
+
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -1188,16 +1204,34 @@ class _CoachPageState extends State<CoachPage> {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              isScanningReceipt
-                  ? 'Coach sedang memeriksa nota...'
-                  : 'Wait, Sabar Boss...',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
+            if (isScanningReceipt)
+              StreamBuilder<int>(
+                stream: Stream.periodic(
+                  const Duration(milliseconds: 900),
+                  (i) => (i + 1).clamp(0, scanSteps.length - 1),
+                ),
+                initialData: 0,
+                builder: (context, snapshot) {
+                  final stepIdx = snapshot.data ?? 0;
+                  return Text(
+                    scanSteps[stepIdx],
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  );
+                },
+              )
+            else
+              const Text(
+                'Wait, Sabar Boss...',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
               ),
-            ),
           ],
         ),
       ),

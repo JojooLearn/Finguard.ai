@@ -709,7 +709,13 @@ class _HomePageState extends State<HomePage> {
 
                                 if (goalState is GoalLoaded &&
                                     goalState.goals.isNotEmpty) {
-                                  topGoal = goalState.goals.first;
+                                  final emergencyGoals = goalState.goals
+                                      .where((g) =>
+                                          g.goalType == GoalType.emergencyFund)
+                                      .toList();
+                                  topGoal = emergencyGoals.isNotEmpty
+                                      ? emergencyGoals.first
+                                      : goalState.goals.first;
                                   goalLabel = topGoal.name;
                                   if (topGoal.goalType == GoalType.emergencyFund) {
                                     goalIcon = PhosphorIcons.shieldCheck(

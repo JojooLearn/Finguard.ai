@@ -183,7 +183,7 @@ class _BudgetPageState extends State<BudgetPage> {
                             color: AppColors.textPrimary,
                           ),
                           decoration: const InputDecoration(
-                            hintText: '1.500.000',
+                            hintText: '0',
                             isDense: true,
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.zero,
@@ -203,19 +203,21 @@ class _BudgetPageState extends State<BudgetPage> {
                         .trim();
                     final limit = double.tryParse(raw);
                     if (limit == null || limit <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text(
-                            'Isi batas belanja yang bener, kocak! Masa 0 rupiah.',
-                            style: TextStyle(fontWeight: FontWeight.w600),
+                      ScaffoldMessenger.of(context)
+                        ..clearSnackBars()
+                        ..showSnackBar(
+                          SnackBar(
+                            content: const Text(
+                              'Nominal batas belanja harus lebih dari Rp0.',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            backgroundColor: AppColors.expenseRed,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
-                          backgroundColor: AppColors.expenseRed,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      );
+                        );
                       return;
                     }
 
@@ -231,19 +233,21 @@ class _BudgetPageState extends State<BudgetPage> {
                         );
 
                     Navigator.pop(ctx);
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Beres! Jatah $categoryName udah di-update.',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                    ScaffoldMessenger.of(this.context)
+                      ..clearSnackBars()
+                      ..showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Beres! Jatah $categoryName udah di-update.',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          backgroundColor: AppColors.incomeGreen,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        backgroundColor: AppColors.incomeGreen,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    );
+                      );
                   },
                 ),
               ],
@@ -275,7 +279,7 @@ class _BudgetPageState extends State<BudgetPage> {
 
     String selectedCatId = expenseCats.first.id;
     String selectedCatName = expenseCats.first.name;
-    final limitCtrl = TextEditingController(text: '1.000.000');
+    final limitCtrl = TextEditingController();
 
     if (!context.mounted) return;
 
@@ -381,7 +385,7 @@ class _BudgetPageState extends State<BudgetPage> {
                             fontSize: 16,
                           ),
                           decoration: const InputDecoration(
-                            hintText: '1.000.000',
+                            hintText: '0',
                             isDense: true,
                             border: InputBorder.none,
                           ),
@@ -396,7 +400,16 @@ class _BudgetPageState extends State<BudgetPage> {
                   onPressed: () {
                     final raw = limitCtrl.text.replaceAll('.', '').replaceAll(',', '').trim();
                     final limit = double.tryParse(raw);
-                    if (limit == null || limit <= 0) return;
+                    if (limit == null || limit <= 0) {
+                      ScaffoldMessenger.of(this.context)
+                        ..clearSnackBars()
+                        ..showSnackBar(
+                          const SnackBar(
+                            content: Text('Nominal batas belanja harus lebih dari Rp0.'),
+                          ),
+                        );
+                      return;
+                    }
 
                     final start = DateTime(_currentDate.year, _currentDate.month, 1);
                     final end = DateTime(_currentDate.year, _currentDate.month + 1, 0);
@@ -410,19 +423,21 @@ class _BudgetPageState extends State<BudgetPage> {
                         );
 
                     Navigator.pop(ctx);
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Mantap! Pos jatah $selectedCatName aktif.',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                    ScaffoldMessenger.of(this.context)
+                      ..clearSnackBars()
+                      ..showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Mantap! Pos jatah $selectedCatName aktif.',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          backgroundColor: AppColors.incomeGreen,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        backgroundColor: AppColors.incomeGreen,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    );
+                      );
                   },
                 ),
               ],
@@ -1196,8 +1211,8 @@ class _BudgetPageState extends State<BudgetPage> {
         child: Column(
           children: [
             Container(
-              width: 52,
-              height: 52,
+              width: 56,
+              height: 56,
               decoration: const BoxDecoration(
                 color: AppColors.primaryLight,
                 shape: BoxShape.circle,
@@ -1206,14 +1221,17 @@ class _BudgetPageState extends State<BudgetPage> {
                 child: Icon(
                   PhosphorIcons.chartPieSlice(),
                   color: AppColors.primary,
-                  size: 26,
+                  size: 28,
                 ),
               ),
             ),
             const SizedBox(height: 12),
             Text(
               'Belum Ada Jatah Belanja Aktif',
-              style: AppTypography.itemTitle,
+              style: AppTypography.itemTitle.copyWith(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 4),
             Text(

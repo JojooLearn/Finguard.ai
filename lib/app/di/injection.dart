@@ -124,6 +124,7 @@ Future<void> initDependencies() async {
       budgetRepository: sl<BudgetRepository>(),
       goalRepository: sl<GoalRepository>(),
       accountRepository: sl<AccountRepository>(),
+      debtRepository: sl<DebtRepository>(),
     ),
   );
   sl.registerFactory<CoachCubit>(

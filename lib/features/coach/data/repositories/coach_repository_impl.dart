@@ -3,8 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/errors/failure.dart';
 import '../../../../core/result/result.dart';
+import '../../../../core/utils/financial_calculator.dart';
 import '../../../budgets/domain/entities/budget_entity.dart';
 import '../../../budgets/domain/repositories/budget_repository.dart';
+import '../../../debts/domain/entities/debt_entity.dart';
+import '../../../debts/domain/repositories/debt_repository.dart';
 import '../../../goals/domain/entities/goal_entity.dart';
 import '../../../goals/domain/repositories/goal_repository.dart';
 import '../../../transactions/domain/entities/account_entity.dart';
@@ -22,6 +25,7 @@ class CoachRepositoryImpl implements CoachRepository {
   final BudgetRepository budgetRepository;
   final GoalRepository goalRepository;
   final AccountRepository? accountRepository;
+  final DebtRepository? debtRepository;
 
   final List<ChatMessageEntity> _localChatHistory = [];
 
@@ -31,6 +35,7 @@ class CoachRepositoryImpl implements CoachRepository {
     required this.budgetRepository,
     required this.goalRepository,
     this.accountRepository,
+    this.debtRepository,
   });
 
   Future<String?>? _pendingGetOrCreate;
@@ -386,35 +391,14 @@ class CoachRepositoryImpl implements CoachRepository {
     List<String> missingFields = [];
     ChatMessageStatus messageStatus = ChatMessageStatus.completed;
 
-    // 2. Try remote Edge Function if user is authenticated
+    // 2. Try remote Edge Function if user is authenticated (Fast path: no redundant sequential pre-queries, 20s timeout)
     int strictnessLevel = 3;
     bool edgeFunctionPersisted = false;
     if (user != null) {
       try {
-        // Ensure budgets are synced and persisted to Supabase so Edge Function has complete context
         final now = DateTime.now();
-        final periodStart = DateTime(now.year, now.month, 1);
-        final periodEnd = DateTime(now.year, now.month + 1, 0);
-        try {
-          await budgetRepository.getBudgets(
-            periodStart: periodStart,
-            periodEnd: periodEnd,
-          );
-        } catch (_) {}
 
-        // Fetch user strictness level from financial_profiles (PRD v3.0 Bab 5)
-        try {
-          final fp = await client
-              .from('financial_profiles')
-              .select('strictness_level')
-              .eq('user_id', user.id)
-              .maybeSingle();
-          if (fp != null && fp['strictness_level'] != null) {
-            strictnessLevel = (fp['strictness_level'] as num).toInt();
-          }
-        } catch (_) {}
-
-        // Also package the last 6 messages as recent history for multi-turn context
+        // Package at most the last 6 messages as recent history for multi-turn context
         final historyList = _localChatHistory.length > 1
             ? _localChatHistory.sublist(0, _localChatHistory.length - 1)
             : <ChatMessageEntity>[];
@@ -443,10 +427,12 @@ class CoachRepositoryImpl implements CoachRepository {
               .toList(),
         };
 
-        final res = await client.functions.invoke(
-          'coach-chat',
-          body: invokeBody,
-        );
+        final res = await client.functions
+            .invoke(
+              'coach-chat',
+              body: invokeBody,
+            )
+            .timeout(const Duration(seconds: 20));
 
         if (res.data != null && res.data is Map) {
           final data = res.data as Map<String, dynamic>;
@@ -652,15 +638,30 @@ class CoachRepositoryImpl implements CoachRepository {
         ? periodStart
         : DateTime(yesterday.year, yesterday.month, yesterday.day);
 
-    final txResult = await transactionRepository.getTransactions(
-      startDate: fetchStart,
-      endDate: periodEnd,
-    );
-    final budgetResult = await budgetRepository.getBudgets(
-      periodStart: periodStart,
-      periodEnd: periodEnd,
-    );
-    final goalResult = await goalRepository.getGoals();
+    // Parallel repository queries to minimize latency
+    final parallelResults = await Future.wait<dynamic>([
+      transactionRepository.getTransactions(
+        startDate: fetchStart,
+        endDate: periodEnd,
+      ),
+      budgetRepository.getBudgets(
+        periodStart: periodStart,
+        periodEnd: periodEnd,
+      ),
+      goalRepository.getGoals(),
+      accountRepository != null
+          ? accountRepository!.getAccounts()
+          : Future.value(const Success(<AccountEntity>[])),
+      debtRepository != null
+          ? debtRepository!.getDebts()
+          : Future.value(const Success(<DebtEntity>[])),
+    ]);
+
+    final txResult = parallelResults[0] as Result<List<TransactionEntity>>;
+    final budgetResult = parallelResults[1] as Result<List<BudgetEntity>>;
+    final goalResult = parallelResults[2] as Result<List<GoalEntity>>;
+    final accResult = parallelResults[3] as Result<List<AccountEntity>>;
+    final debtResult = parallelResults[4] as Result<List<DebtEntity>>;
 
     final transactions = txResult.fold(
       (txs) => txs,
@@ -668,13 +669,8 @@ class CoachRepositoryImpl implements CoachRepository {
     );
     final budgets = budgetResult.fold((b) => b, (_) => <BudgetEntity>[]);
     final goals = goalResult.fold((g) => g, (_) => <GoalEntity>[]);
-
-    // Accounts / Liquid Assets
-    List<AccountEntity> accounts = [];
-    if (accountRepository != null) {
-      final accRes = await accountRepository!.getAccounts();
-      accounts = accRes.fold((a) => a, (_) => []);
-    }
+    final accounts = accResult.fold((a) => a, (_) => <AccountEntity>[]);
+    final debts = debtResult.fold((d) => d, (_) => <DebtEntity>[]);
 
     // 2. Fetch user financial profile for verified income, debt, strictness, and goals
     double verifiedMonthlyIncome = 0.0;
@@ -813,53 +809,89 @@ class CoachRepositoryImpl implements CoachRepository {
     // Total accumulated in goals
     final totalGoalsSaved = goals.fold(0.0, (sum, g) => sum + g.currentAmount);
 
-    // Free monthly cash = Income - Essential Expenses - Debt
-    final freeCash = effectiveIncome > 0
-        ? (effectiveIncome - essentialExpenses - monthlyDebt).clamp(
-            0.0,
-            double.infinity,
-          )
-        : (netCashFlow > 0 ? netCashFlow : 0.0);
+    // Active debts & unpaid monthly debt obligation (preventing double counting if paid this month)
+    final activeDebts = debts
+        .where((d) => !d.isCompleted && d.remainingTenorMonths > 0)
+        .toList();
+    final paidDebtNotes = transactions
+        .where((tx) =>
+            tx.transactionType == TransactionType.expense &&
+            tx.transactionDate.year == now.year &&
+            tx.transactionDate.month == now.month &&
+            (tx.note ?? '').toLowerCase().startsWith('bayar '))
+        .map((tx) => (tx.note ?? '').toLowerCase())
+        .toList();
+
+    double unpaidMonthlyDebt = 0.0;
+    if (activeDebts.isNotEmpty) {
+      for (final d in activeDebts) {
+        final dName = d.name.toLowerCase();
+        final alreadyPaid = paidDebtNotes.any((n) => n.contains('bayar $dName'));
+        if (!alreadyPaid) {
+          unpaidMonthlyDebt += d.monthlyPayment;
+        }
+      }
+    } else {
+      unpaidMonthlyDebt = monthlyDebt;
+    }
+
+    // Golden Financial Rule:
+    // Uang Dingin Siap Pakai = Total Pemasukan - Total Pengeluaran Konsumsi - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Tabungan/Dana Darurat Bulan Ini
+    final effectiveConsumptionExpense =
+        totalExpense > 0 ? totalExpense : essentialExpenses;
+    final freeCash = FinancialCalculator.calculateAvailableFreeCash(
+      totalIncome: effectiveIncome,
+      totalConsumptionExpense: effectiveConsumptionExpense,
+      unpaidMonthlyDebt: unpaidMonthlyDebt,
+      monthlySavingsContribution: totalGoalsSaved,
+    );
 
     // 3. Amount Extraction with support for Indonesian vernacular (e.g. 150 juta, 3 jt, 50rb, 35k, 35.000)
     final extractedAmount = _extractAmount(lower);
 
     // 4. Multi-turn Follow-up Detection
-    // Search backward across the last 5 messages to catch item context (mobil, laptop, hp, etc.)
+    // Only trigger follow-up price if the previous assistant message explicitly asked for the item's price
     String? previousConsultationItem;
-    for (
-      int i = _localChatHistory.length - 2;
-      i >= 0 && i >= _localChatHistory.length - 6;
-      i--
-    ) {
-      final msg = _localChatHistory[i];
-      final contentLower = msg.content.toLowerCase();
-      if (contentLower.contains('mobil')) {
-        previousConsultationItem = 'Mobil';
-        break;
-      } else if (contentLower.contains('gadget') ||
-          contentLower.contains('hp') ||
-          contentLower.contains('iphone')) {
-        previousConsultationItem = 'Gadget / HP';
-        break;
-      } else if (contentLower.contains('laptop') ||
-          contentLower.contains('macbook')) {
-        previousConsultationItem = 'Laptop';
-        break;
-      } else if (contentLower.contains('motor')) {
-        previousConsultationItem = 'Motor';
-        break;
-      } else if (contentLower.contains('rumah')) {
-        previousConsultationItem = 'Rumah';
-        break;
-      } else if (contentLower.contains('beli') ||
-          contentLower.contains('kisaran harga') ||
-          contentLower.contains('ketik nominalnya')) {
-        previousConsultationItem = 'Barang Impian';
+    if (_localChatHistory.length >= 2) {
+      final prevMsg = _localChatHistory[_localChatHistory.length - 2];
+      final prevLower = prevMsg.content.toLowerCase();
+      final askedForPrice = prevLower.contains('berapa harga') ||
+          prevLower.contains('ketik nominalnya') ||
+          prevLower.contains('ketik harganya');
+      if (askedForPrice) {
+        if (prevLower.contains('mobil')) {
+          previousConsultationItem = 'Mobil';
+        } else if (prevLower.contains('gadget') ||
+            prevLower.contains('hp') ||
+            prevLower.contains('iphone')) {
+          previousConsultationItem = 'Gadget / HP';
+        } else if (prevLower.contains('laptop') ||
+            prevLower.contains('macbook')) {
+          previousConsultationItem = 'Laptop';
+        } else if (prevLower.contains('motor')) {
+          previousConsultationItem = 'Motor';
+        } else if (prevLower.contains('rumah')) {
+          previousConsultationItem = 'Rumah';
+        } else {
+          previousConsultationItem = 'Barang Impian';
+        }
       }
     }
 
+    final isExplicitPastTransaction =
+        lower.startsWith('tadi ') ||
+        lower.contains('tadi gue ') ||
+        lower.contains('tadi saya ') ||
+        lower.contains('barusan ') ||
+        lower.contains('habis beli ') ||
+        lower.contains('udah beli ') ||
+        lower.contains('sudah beli ') ||
+        lower.contains('beli bensin') ||
+        lower.contains('isi bensin') ||
+        lower.startsWith('catat ');
+
     final isFollowUpPrice =
+        !isExplicitPastTransaction &&
         previousConsultationItem != null &&
         extractedAmount != null &&
         extractedAmount > 0;
@@ -884,23 +916,24 @@ class CoachRepositoryImpl implements CoachRepository {
         lower.contains('mampu ga');
 
     final isPurchaseConsultation =
-        isFollowUpPrice ||
-        ((lower.contains('beli') ||
-                lower.contains('gadget') ||
-                lower.contains('laptop') ||
-                lower.contains('mobil') ||
-                lower.contains('motor') ||
-                lower.contains('sepatu') ||
-                lower.contains('hp') ||
-                lower.contains('rumah') ||
-                lower.contains('belanja')) &&
-            (isQuestion ||
-                lower.contains('mau beli') ||
-                lower.contains('pengen beli') ||
-                lower.contains('rencana beli') ||
-                lower.contains('boleh beli') ||
-                lower.contains('bisa beli') ||
-                lower.contains('konsultasi')));
+        !isExplicitPastTransaction &&
+        (isFollowUpPrice ||
+            ((lower.contains('beli') ||
+                    lower.contains('gadget') ||
+                    lower.contains('laptop') ||
+                    lower.contains('mobil') ||
+                    lower.contains('motor') ||
+                    lower.contains('sepatu') ||
+                    lower.contains('hp') ||
+                    lower.contains('rumah') ||
+                    lower.contains('belanja')) &&
+                (isQuestion ||
+                    lower.contains('mau beli') ||
+                    lower.contains('pengen beli') ||
+                    lower.contains('rencana beli') ||
+                    lower.contains('boleh beli') ||
+                    lower.contains('bisa beli') ||
+                    lower.contains('konsultasi'))));
 
     final isWealthQuery =
         lower.contains('dana yang') ||
@@ -947,6 +980,86 @@ class CoachRepositoryImpl implements CoachRepository {
 
       return (
         reply: greeting,
+        extractedTx: null,
+        needsClarification: false,
+        missingFields: <String>[],
+      );
+    }
+
+    // --- Intent D: Active Debts & Installment Prioritization Inquiry (TC-13) ---
+    final isDebtInquiry =
+        (lower.contains('cicilan') || lower.contains('utang') || lower.contains('hutang')) &&
+        (isQuestion ||
+            lower.contains('punya cicilan') ||
+            lower.contains('lunasin') ||
+            lower.contains('lunasi') ||
+            lower.contains('duluan') ||
+            lower.contains('prioritas') ||
+            lower.contains('apa aja') ||
+            lower.contains('apa saja'));
+
+    if (isDebtInquiry) {
+      if (activeDebts.isEmpty) {
+        return (
+          reply:
+              'Saat ini kamu bebas dari komitmen cicilan aktif (DSR 0%). Seluruh uang dingin siap pakaimu sebesar ${_formatRp(freeCash)} bisa langsung difokuskan ke Dana Darurat dan investasi.',
+          extractedTx: null,
+          needsClarification: false,
+          missingFields: <String>[],
+        );
+      }
+
+      final sortedByInterest = [...activeDebts]
+        ..sort((a, b) {
+          final cmp = b.annualInterestRate.compareTo(a.annualInterestRate);
+          if (cmp != 0) return cmp;
+          return b.remainingAmount.compareTo(a.remainingAmount);
+        });
+
+      final totalMonthlyObligation = activeDebts.fold<double>(
+        0.0,
+        (s, d) => s + d.monthlyPayment,
+      );
+      final dsrPct = effectiveIncome > 0
+          ? (totalMonthlyObligation / effectiveIncome) * 100
+          : 0.0;
+
+      final buf = StringBuffer();
+      buf.writeln(
+        'Berikut rincian cicilan aktifmu saat ini (Total beban: ${_formatRp(totalMonthlyObligation)}/bulan | DSR ${dsrPct.toStringAsFixed(0)}%):',
+      );
+      for (final d in activeDebts) {
+        final rateStr = d.annualInterestRate > 0
+            ? 'Bunga ${d.annualInterestRate.toStringAsFixed(0)}%/tahun'
+            : 'Bunga 0%';
+        final compoundNote = d.appliedInterestAmount > 0
+            ? ' (termasuk akumulasi bunga tahunan +${_formatRp(d.appliedInterestAmount)} setelah ${d.appliedYears} tahun)'
+            : '';
+        buf.writeln(
+          '- **${d.name}**: ${_formatRp(d.monthlyPayment)}/bln | Sisa ${d.remainingTenorMonths} dari ${d.totalTenorMonths} bulan | Sisa Utang: **${_formatRp(d.remainingAmount)}** ($rateStr$compoundNote)',
+        );
+      }
+
+      final topDebt = sortedByInterest.first;
+      buf.writeln('\n### Strategi Prioritas Pelunasan (Metode Debt Avalanche)');
+      if (topDebt.annualInterestRate > 0) {
+        buf.writeln(
+          'Prioritaskan melunasi **${topDebt.name}** terlebih dahulu karena memiliki **bunga ${topDebt.annualInterestRate.toStringAsFixed(0)}%/tahun** yang terus menambah beban sisa utangmu menjadi ${_formatRp(topDebt.remainingAmount)} jika melewati 1 tahun.',
+        );
+        if (sortedByInterest.length > 1) {
+          final secondDebt = sortedByInterest.last;
+          buf.writeln(
+            'Untuk **${secondDebt.name}** (${secondDebt.annualInterestRate == 0 ? "Bunga 0%" : "Bunga ${secondDebt.annualInterestRate.toStringAsFixed(0)}%"}), cukup bayar sesuai jadwal bulanan (${_formatRp(secondDebt.monthlyPayment)}/bln) sampai lunas tanpa perlu dipercepat.',
+          );
+        }
+      } else {
+        buf.writeln(
+          'Semua cicilanmu memiliki bunga 0%. Prioritaskan melunasi **${topDebt.name}** sesuai jadwal jatuh tempo.',
+        );
+      }
+
+      return (
+        reply: buf.toString().trim(),
         extractedTx: null,
         needsClarification: false,
         missingFields: <String>[],

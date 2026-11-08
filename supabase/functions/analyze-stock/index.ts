@@ -100,11 +100,11 @@ serve(async (req) => {
 
     const isIpo = !onDemandResult.isSuccess || onDemandResult.price === 0 || cleanTicker === "ANDA" || cleanTicker === "WBSA";
 
-    // Deterministic metrics
+    // Deterministic metrics (Golden Financial Rule)
     const price = onDemandResult.price > 0 ? onDemandResult.price : (cleanTicker === "ANDA" ? 158 : 100);
     const lotPrice = price * 100;
-    const freeCash = finContext.monthlyIncome - finContext.essentialExpenses - finContext.monthlyDebt;
-    const userEffectiveCash = Math.max(0, finContext.availableCash);
+    const freeCash = finContext.availableFreeCash;
+    const userEffectiveCash = Math.max(0, finContext.availableFreeCash);
     const affordableLotsFreeCash = freeCash > 0 ? Math.floor(freeCash / lotPrice) : 0;
     const affordableLotsLiquid = userEffectiveCash > 0 ? Math.floor(userEffectiveCash / lotPrice) : 0;
 

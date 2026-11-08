@@ -49,9 +49,9 @@ serve(async (req) => {
       });
     }
 
-    // 2. Deterministic calculations (PRD Section 15.4)
-    // Kas bebas bulanan = Pendapatan - Pengeluaran Esensial - Kewajiban/Utang
-    const freeCash = finContext.monthlyIncome - finContext.essentialExpenses - finContext.monthlyDebt;
+    // 2. Deterministic calculations (Golden Financial Rule)
+    // Uang Dingin Siap Pakai = Total Pemasukan - Total Pengeluaran Konsumsi - Kewajiban Cicilan Belum Dibayar - Setoran Tabungan/Dana Darurat Bulan Ini
+    const freeCash = finContext.availableFreeCash;
     const remainingCash = freeCash - priceNum;
 
     // Opportunity cost calculation on goals & savings

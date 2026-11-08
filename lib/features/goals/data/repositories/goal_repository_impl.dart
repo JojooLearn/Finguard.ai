@@ -176,8 +176,19 @@ class GoalRepositoryImpl implements GoalRepository {
         updatedAt: DateTime.now(),
       );
       _localGoals[index] = updatedGoal;
-    } else {
+    } else if (_localGoals.isNotEmpty) {
       updatedGoal = _localGoals.first;
+    } else {
+      updatedGoal = GoalEntity(
+        id: goalId,
+        userId: 'local_user',
+        name: 'Target Tabungan',
+        goalType: GoalType.savings,
+        targetAmount: amount,
+        currentAmount: amount,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
     }
 
     try {
@@ -191,6 +202,7 @@ class GoalRepositoryImpl implements GoalRepository {
               .from('financial_goals')
               .select('id')
               .eq('user_id', user.id)
+              .neq('goal_type', 'debt_repayment')
               .order('created_at', ascending: false)
               .limit(1)
               .maybeSingle();
@@ -222,7 +234,7 @@ class GoalRepositoryImpl implements GoalRepository {
             .select()
             .single();
 
-        return Success(GoalEntity(
+        final syncedGoal = GoalEntity(
           id: updated['id'],
           userId: updated['user_id'],
           name: updated['name'],
@@ -239,7 +251,11 @@ class GoalRepositoryImpl implements GoalRepository {
           status: GoalStatus.fromString(updated['status'] ?? 'active'),
           createdAt: DateTime.parse(updated['created_at']).toLocal(),
           updatedAt: DateTime.parse(updated['updated_at']).toLocal(),
-        ));
+        );
+        if (index != -1 && index < _localGoals.length) {
+          _localGoals[index] = syncedGoal;
+        }
+        return Success(syncedGoal);
       }
     } catch (_) {
       // Return local entity

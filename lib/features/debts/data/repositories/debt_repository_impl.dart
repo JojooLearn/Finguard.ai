@@ -305,18 +305,84 @@ class DebtRepositoryImpl implements DebtRepository {
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('id', debtId);
 
-        // 2. Record expense transaction for this payment
+        // 2. Record expense transaction for this payment with valid account_id & category_id
         try {
-          await client.from('transactions').insert({
-            'user_id': user.id,
-            'amount': d.monthlyPayment,
-            'transaction_type': 'expense',
-            'category_id': 'cat_sys_tagihan',
-            'note': 'Bayar ${d.name} (${d.totalTenorMonths - newRemaining}/${d.totalTenorMonths})',
-            'transaction_date': DateTime.now().toIso8601String().split('T')[0],
-            'source': 'manual',
-            'status': 'confirmed',
-          });
+          String? accountId;
+          final accRows = await client
+              .from('accounts')
+              .select('id')
+              .eq('user_id', user.id)
+              .limit(1);
+          if ((accRows as List).isNotEmpty) {
+            accountId = accRows.first['id'] as String?;
+          } else {
+            final newAcc = await client
+                .from('accounts')
+                .insert({
+                  'user_id': user.id,
+                  'name': 'Dompet Utama',
+                  'type': 'cash',
+                  'currency_code': 'IDR',
+                  'initial_balance': 0,
+                  'current_balance': 0,
+                })
+                .select('id')
+                .single();
+            accountId = newAcc['id'] as String?;
+          }
+
+          String? categoryId;
+          final catRows = await client
+              .from('categories')
+              .select('id, name')
+              .or('user_id.eq.${user.id},is_system.eq.true')
+              .eq('type', 'expense');
+          final catList = catRows as List;
+          for (final c in catList) {
+            final cname = (c['name'] as String? ?? '').toLowerCase();
+            if (cname.contains('tagihan') ||
+                cname.contains('cicilan') ||
+                cname.contains('utilitas')) {
+              categoryId = c['id'] as String?;
+              break;
+            }
+          }
+          if (categoryId == null && catList.isNotEmpty) {
+            categoryId = catList.first['id'] as String?;
+          }
+          if (categoryId == null) {
+            final newCat = await client
+                .from('categories')
+                .insert({
+                  'user_id': user.id,
+                  'name': 'Tagihan & Utilitas',
+                  'type': 'expense',
+                  'icon': 'receipt',
+                  'color': '#EF4444',
+                  'is_essential': true,
+                  'is_system': false,
+                })
+                .select('id')
+                .single();
+            categoryId = newCat['id'] as String?;
+          }
+
+          if (accountId != null) {
+            await client.from('transactions').insert({
+              'user_id': user.id,
+              'account_id': accountId,
+              'category_id': categoryId,
+              'amount': d.monthlyPayment,
+              'transaction_type': 'expense',
+              'merchant_name': d.name,
+              'note':
+                  'Bayar ${d.name} (${d.totalTenorMonths - newRemaining}/${d.totalTenorMonths})',
+              'transaction_date':
+                  DateTime.now().toIso8601String().split('T')[0],
+              'source': 'manual',
+              'status': 'confirmed',
+            });
+          }
         } catch (_) {}
 
         // 3. Sync profile monthly debt obligation

@@ -743,29 +743,55 @@ class _TransactionListPageState extends State<TransactionListPage> {
                                 horizontal: 24,
                                 vertical: 32,
                               ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Image.asset(
-                                    'assets/images/empty_transactions.png',
-                                    width: 170,
-                                    height: 170,
-                                    fit: BoxFit.contain,
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 32,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceCard,
+                                  borderRadius: BorderRadius.circular(
+                                    AppSpacing.cardRadius,
                                   ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'Belum Ada Transaksi',
-                                    style: AppTypography.screenTitle.copyWith(
-                                      fontSize: 18,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 56,
+                                      height: 56,
+                                      decoration: const BoxDecoration(
+                                        color: AppColors.primaryLight,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Center(
+                                        child: Icon(
+                                          PhosphorIcons.receipt(),
+                                          color: AppColors.primary,
+                                          size: 28,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Ketuk tombol + di bawah atau langsung curhat pengeluaranmu ke AI Coach!',
-                                    style: AppTypography.caption,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
+                                    const SizedBox(height: 14),
+                                    Text(
+                                      'Belum Ada Transaksi',
+                                      style: AppTypography.itemTitle.copyWith(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Ketuk tombol + di pojok kanan atas atau langsung curhat pengeluaranmu ke AI Coach!',
+                                      style: AppTypography.captionText.copyWith(
+                                        color: AppColors.textSecondary,
+                                        height: 1.4,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../../../app/di/injection.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
@@ -44,15 +45,19 @@ class _PurchaseConsultationPageState extends State<PurchaseConsultationPage> {
   void _onAnalyze(BuildContext context) {
     final price = CurrencyInputFormatter.parse(_priceController.text);
     if (_itemController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Masukkan nama barang yang ingin dibeli')),
-      );
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(content: Text('Masukkan nama barang yang ingin dibeli')),
+        );
       return;
     }
     if (price <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Masukkan nominal harga barang terlebih dahulu')),
-      );
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(content: Text('Masukkan nominal harga barang terlebih dahulu')),
+        );
       return;
     }
     context.read<ConsultationCubit>().consultPurchase(
@@ -87,7 +92,7 @@ class _PurchaseConsultationPageState extends State<PurchaseConsultationPage> {
                       Row(
                         children: [
                           AppIconButton(
-                            icon: Icons.arrow_back_rounded,
+                            icon: PhosphorIcons.arrowLeft(),
                             onPressed: () => Navigator.pop(context),
                           ),
                           const SizedBox(width: 14),
@@ -152,7 +157,7 @@ class _PurchaseConsultationPageState extends State<PurchaseConsultationPage> {
                                 fontWeight: FontWeight.w700,
                               ),
                               decoration: InputDecoration(
-                                hintText: '2.500.000',
+                                hintText: '0',
                                 hintStyle: AppTypography.bigNumber.copyWith(
                                   fontSize: 22,
                                   fontWeight: FontWeight.w700,
