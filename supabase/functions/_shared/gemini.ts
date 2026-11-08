@@ -23,11 +23,15 @@ export async function callGemini({
   contents,
   temperature = 0.2,
   responseSchema,
+  responseModalities,
+  speechConfig,
 }: {
   systemInstruction?: string;
   contents: GeminiMessage[];
   temperature?: number;
   responseSchema?: Record<string, unknown>;
+  responseModalities?: string[];
+  speechConfig?: Record<string, unknown>;
 }) {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) {
@@ -85,6 +89,11 @@ export async function callGemini({
       if (includeSchema) {
         body.generationConfig.responseSchema = responseSchema;
       }
+    } else if (responseModalities && responseModalities.length > 0) {
+      body.generationConfig.responseModalities = responseModalities;
+      if (speechConfig) {
+        body.generationConfig.speechConfig = speechConfig;
+      }
     }
     return body;
   };
@@ -124,4 +133,133 @@ export async function callGemini({
   }
 
   throw new ApiError(`All Gemini models failed: ${lastError}`, 502, "AI_GATEWAY_ERROR");
+}
+
+/**
+ * Wraps raw 16-bit mono PCM audio (e.g. 24000 Hz from Gemini TTS / AUDIO modality)
+ * into a standard 44-byte RIFF WAV container encoded as Base64 so just_audio can stream it in-memory.
+ */
+export function wrapPcm16ToWavBase64(pcmBase64: string, sampleRate = 24000): string {
+  const binaryStr = atob(pcmBase64.replace(/^data:audio\/[^;]+;base64,/, "").trim());
+  const pcmLen = binaryStr.length;
+  // Check if it already starts with "RIFF"
+  if (pcmLen >= 4 && binaryStr.substring(0, 4) === "RIFF") {
+    return btoa(binaryStr);
+  }
+
+  const wavBuffer = new ArrayBuffer(44 + pcmLen);
+  const view = new DataView(wavBuffer);
+  const bytes = new Uint8Array(wavBuffer);
+
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + pcmLen, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true); // AudioFormat (1 = PCM)
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, "data");
+  view.setUint32(40, pcmLen, true);
+
+  for (let i = 0; i < pcmLen; i++) {
+    bytes[44 + i] = binaryStr.charCodeAt(i);
+  }
+
+  let outBin = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    outBin += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(outBin);
+}
+
+/**
+ * Generates contextual AI Voice-Out (Gemini AUDIO modality / TTS) when request_audio === true.
+ */
+export async function generateGeminiSpeechAudio(
+  textToSpeak: string,
+  voiceName = "Puck"
+): Promise<string | null> {
+  const apiKey = Deno.env.get("GEMINI_API_KEY");
+  if (!apiKey || !textToSpeak || textToSpeak.trim().length === 0) return null;
+
+  const cleanText = textToSpeak
+    .replace(/[*#_`~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700);
+
+  const audioModels = [
+    "gemini-3.5-flash-preview-tts",
+    "gemini-3.0-flash-exp",
+    "gemini-3.5-flash",
+  ];
+
+  // Configure Gemini with responseModalities & speechConfig per feature spec
+  const geminiConfig = {
+    responseModalities: ["AUDIO"],
+    speechConfig: {
+      voiceConfig: {
+        prebuiltVoiceConfig: {
+          voiceName,
+        },
+      },
+    },
+  };
+
+  for (const model of audioModels) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Bacakan balasan Coach keuangan ini dengan nada santai dan natural dalam Bahasa Indonesia: "${cleanText}"`,
+                },
+              ],
+            },
+          ],
+          generationConfig: geminiConfig,
+        }),
+      });
+
+      if (!res.ok) continue;
+      const json = await res.json();
+      const parts = json.candidates?.[0]?.content?.parts || [];
+      for (const p of parts) {
+        const inline = p.inlineData || p.inline_data;
+        if (inline?.data) {
+          const mime = String(inline.mimeType || inline.mime_type || "").toLowerCase();
+          if (mime.includes("pcm") || mime.includes("l16") || !mime.includes("mp3")) {
+            return wrapPcm16ToWavBase64(inline.data, 24000);
+          }
+          return inline.data;
+        }
+      }
+    } catch (_) {
+      // Try next audio candidate model
+    }
+  }
+
+  return null;
 }

@@ -54,6 +54,9 @@ dependencies:
   lottie: ^3.3.3
   url_launcher: ^6.3.2
   onesignal_flutter: ^5.7.2
+  speech_to_text: ^7.4.0
+  permission_handler: ^13.0.2
+  just_audio: ^0.10.6
 
 
 dev_dependencies:

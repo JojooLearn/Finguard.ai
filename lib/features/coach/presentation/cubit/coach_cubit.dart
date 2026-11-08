@@ -141,7 +141,11 @@ class CoachCubit extends Cubit<CoachState> {
     );
   }
 
-  Future<void> sendMessage(String text, {String? conversationId}) async {
+  Future<void> sendMessage(
+    String text, {
+    String? conversationId,
+    bool requestAudio = false,
+  }) async {
     if (text.trim().isEmpty) return;
 
     final currentState = state is CoachLoaded ? (state as CoachLoaded) : null;
@@ -156,6 +160,7 @@ class CoachCubit extends Cubit<CoachState> {
       conversationId: activeConvId ?? 'default',
       senderType: ChatSenderType.user,
       content: text,
+      structuredPayload: requestAudio ? {'request_audio': true} : null,
       clientRequestId: clientRequestId,
       createdAt: DateTime.now(),
     );
@@ -170,6 +175,7 @@ class CoachCubit extends Cubit<CoachState> {
       message: text,
       conversationId: activeConvId,
       clientRequestId: clientRequestId,
+      requestAudio: requestAudio,
     );
 
     result.fold(

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:lottie/lottie.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -15,6 +17,7 @@ import '../../../../core/formatters/date_formatter.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../domain/entities/chat_message_entity.dart';
 import '../../domain/services/receipt_scanner_service.dart';
+import '../../domain/services/voice_io_service.dart';
 import '../../../profile/presentation/cubit/profile_cubit.dart';
 import '../../../profile/presentation/cubit/profile_state.dart';
 import '../cubit/coach_cubit.dart';
@@ -33,6 +36,18 @@ class _CoachPageState extends State<CoachPage> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final ReceiptScannerService _scannerService = ReceiptScannerService();
+  final VoiceIoService _voiceIoService = VoiceIoService();
+
+  AudioPlayer? _audioPlayer;
+  StreamSubscription<PlayerState>? _playerStateSub;
+  String? _activePlayingMessageId;
+  bool _isAudioPlaying = false;
+  String? _lastAutoPlayedMessageId;
+
+  bool _hasInputText = false;
+  bool _isListeningVoice = false;
+  bool _isVoiceOrigin = false;
+  bool _isUpdatingTextFromStt = false;
 
   Uint8List? _selectedReceiptBytes;
   String? _selectedReceiptName;
@@ -41,9 +56,153 @@ class _CoachPageState extends State<CoachPage> {
   @override
   void initState() {
     super.initState();
+    _textController.addListener(_onTextChanged);
     final cubit = context.read<CoachCubit>();
     if (cubit.state is CoachInitial) {
       cubit.loadChatHistory();
+    }
+  }
+
+  void _onTextChanged() {
+    final nonEmpty = _textController.text.trim().isNotEmpty;
+    if (!_isUpdatingTextFromStt) {
+      if (!nonEmpty) {
+        _isVoiceOrigin = false;
+      } else if (!_isListeningVoice) {
+        // User typed manually via keyboard
+        _isVoiceOrigin = false;
+      }
+    }
+    if (nonEmpty != _hasInputText && mounted) {
+      setState(() {
+        _hasInputText = nonEmpty;
+      });
+    }
+  }
+
+  AudioPlayer _getOrCreateAudioPlayer() {
+    if (_audioPlayer != null) return _audioPlayer!;
+    final player = AudioPlayer();
+    _audioPlayer = player;
+    _playerStateSub = player.playerStateStream.listen((playerState) {
+      if (!mounted) return;
+      final completed =
+          playerState.processingState == ProcessingState.completed;
+      if (completed) {
+        player.seek(Duration.zero);
+        player.pause();
+        setState(() {
+          _isAudioPlaying = false;
+        });
+      } else {
+        final playing = playerState.playing;
+        if (playing != _isAudioPlaying) {
+          setState(() {
+            _isAudioPlaying = playing;
+          });
+        }
+      }
+    });
+    return player;
+  }
+
+  Future<void> _togglePlayMessageAudio(ChatMessageEntity message) async {
+    final base64Str = message.effectiveAudioBase64;
+    if (base64Str == null || base64Str.isEmpty) return;
+
+    try {
+      final player = _getOrCreateAudioPlayer();
+      if (_activePlayingMessageId == message.id) {
+        if (player.playing) {
+          await player.pause();
+          if (mounted) setState(() => _isAudioPlaying = false);
+        } else {
+          await player.play();
+          if (mounted) setState(() => _isAudioPlaying = true);
+        }
+        return;
+      }
+
+      await player.stop();
+      setState(() {
+        _activePlayingMessageId = message.id;
+        _isAudioPlaying = true;
+      });
+
+      final source = InMemoryWavAudioSource.fromBase64(
+        base64Str,
+        tag: message.id,
+      );
+      await player.setAudioSource(source);
+      await player.play();
+    } catch (e) {
+      debugPrint('In-memory audio playback error: $e');
+      if (mounted) {
+        setState(() {
+          _isAudioPlaying = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleVoiceInput() async {
+    if (_isListeningVoice) {
+      await _voiceIoService.stopListening();
+      if (mounted) {
+        setState(() => _isListeningVoice = false);
+      }
+      final currentText = _textController.text.trim();
+      if (currentText.isNotEmpty) {
+        await _sendMessage(null, true);
+      }
+      return;
+    }
+
+    setState(() {
+      _isListeningVoice = true;
+      _isVoiceOrigin = true;
+    });
+
+    final started = await _voiceIoService.startListening(
+      onResult: (recognizedWords, isFinalResult) {
+        if (!mounted) return;
+        _isUpdatingTextFromStt = true;
+        _textController.text = recognizedWords;
+        _textController.selection = TextSelection.fromPosition(
+          TextPosition(offset: _textController.text.length),
+        );
+        _isVoiceOrigin = true;
+        _hasInputText = recognizedWords.trim().isNotEmpty;
+        _isUpdatingTextFromStt = false;
+        setState(() {});
+
+        if (isFinalResult && recognizedWords.trim().isNotEmpty) {
+          setState(() => _isListeningVoice = false);
+          _sendMessage(null, true);
+        }
+      },
+      onStatus: (status) {
+        if (!mounted) return;
+        if (status == 'done' || status == 'notListening') {
+          setState(() => _isListeningVoice = false);
+        }
+      },
+      onError: (errMsg) {
+        if (!mounted) return;
+        setState(() => _isListeningVoice = false);
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(errMsg),
+              backgroundColor: AppColors.danger,
+            ),
+          );
+      },
+    );
+
+    if (!started && mounted) {
+      setState(() => _isListeningVoice = false);
     }
   }
 
@@ -261,15 +420,34 @@ class _CoachPageState extends State<CoachPage> {
     }
   }
 
-  Future<void> _sendMessage([String? presetText]) async {
+  Future<void> _sendMessage([
+    String? presetText,
+    bool? forceRequestAudio,
+  ]) async {
     final text = presetText ?? _textController.text.trim();
     final hasReceipt = _selectedReceiptBytes != null;
 
     if (text.isEmpty && !hasReceipt) return;
 
-    if (presetText == null) {
-      _textController.clear();
+    final shouldRequestAudio =
+        forceRequestAudio ?? (presetText == null && _isVoiceOrigin);
+
+    if (_isListeningVoice) {
+      await _voiceIoService.stopListening();
     }
+
+    if (presetText == null) {
+      _isUpdatingTextFromStt = true;
+      _textController.clear();
+      _isUpdatingTextFromStt = false;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isListeningVoice = false;
+      _isVoiceOrigin = false;
+      _hasInputText = _textController.text.trim().isNotEmpty;
+    });
 
     if (hasReceipt) {
       final receiptBytes = _selectedReceiptBytes!;
@@ -299,7 +477,11 @@ class _CoachPageState extends State<CoachPage> {
         caption: text.isNotEmpty ? text : null,
       );
     } else {
-      context.read<CoachCubit>().sendMessage(text);
+      if (!mounted) return;
+      context.read<CoachCubit>().sendMessage(
+        text,
+        requestAudio: shouldRequestAudio,
+      );
     }
     _scrollToBottom();
   }
@@ -318,6 +500,9 @@ class _CoachPageState extends State<CoachPage> {
 
   @override
   void dispose() {
+    _textController.removeListener(_onTextChanged);
+    _playerStateSub?.cancel();
+    _audioPlayer?.dispose();
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -431,6 +616,15 @@ class _CoachPageState extends State<CoachPage> {
             listener: (context, state) {
               if (state is CoachLoaded) {
                 _scrollToBottom();
+                if (!state.isSending && state.messages.isNotEmpty) {
+                  final latest = state.messages.last;
+                  if (!latest.isUser &&
+                      latest.hasAudio &&
+                      _lastAutoPlayedMessageId != latest.id) {
+                    _lastAutoPlayedMessageId = latest.id;
+                    _togglePlayMessageAudio(latest);
+                  }
+                }
               }
             },
             builder: (context, state) {
@@ -574,9 +768,11 @@ class _CoachPageState extends State<CoachPage> {
                                     style: AppTypography.body,
                                     decoration: InputDecoration(
                                       isDense: true,
-                                      hintText: _selectedReceiptBytes != null
-                                          ? 'Catatan nota (opsional)...'
-                                          : 'Tulis transaksi atau tanya...',
+                                      hintText: _isListeningVoice
+                                          ? 'Mendengarkan suara kamu...'
+                                          : (_selectedReceiptBytes != null
+                                              ? 'Catatan nota (opsional)...'
+                                              : 'Tulis transaksi atau tanya...'),
                                       hintStyle: AppTypography.bodySecondary.copyWith(
                                         fontSize: 13,
                                       ),
@@ -624,24 +820,55 @@ class _CoachPageState extends State<CoachPage> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => _sendMessage(),
-                          child: Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              gradient: AppColors.aiAccentGradient,
-                              shape: BoxShape.circle,
-                              boxShadow: AppSpacing.glowShadow,
-                            ),
-                            child: Center(
-                              child: Icon(
-                                PhosphorIcons.arrowUp(PhosphorIconsStyle.bold),
-                                color: Colors.white,
-                                size: 20,
+                        Builder(
+                          builder: (context) {
+                            final showSendIcon =
+                                _hasInputText || _selectedReceiptBytes != null;
+                            return GestureDetector(
+                              key: const Key('voice_or_send_action_button'),
+                              onTap: () {
+                                if (showSendIcon) {
+                                  _sendMessage();
+                                } else {
+                                  _toggleVoiceInput();
+                                }
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  gradient: _isListeningVoice
+                                      ? const LinearGradient(
+                                          colors: [
+                                            Color(0xFFEF4444),
+                                            Color(0xFFDC2626),
+                                          ],
+                                        )
+                                      : AppColors.aiAccentGradient,
+                                  shape: BoxShape.circle,
+                                  boxShadow: AppSpacing.glowShadow,
+                                ),
+                                child: Center(
+                                  child: Icon(
+                                    showSendIcon
+                                        ? PhosphorIcons.arrowUp(
+                                            PhosphorIconsStyle.bold,
+                                          )
+                                        : (_isListeningVoice
+                                            ? PhosphorIcons.stop(
+                                                PhosphorIconsStyle.fill,
+                                              )
+                                            : PhosphorIcons.microphone(
+                                                PhosphorIconsStyle.bold,
+                                              )),
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -704,6 +931,10 @@ class _CoachPageState extends State<CoachPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (message.hasAudio) ...[
+                  _buildMiniAudioPlayer(message),
+                  const SizedBox(height: 10),
+                ],
                 _buildMessageContent(message.content, isUser),
                 const SizedBox(height: 6),
                 Align(
@@ -726,6 +957,86 @@ class _CoachPageState extends State<CoachPage> {
             _buildExtractionConfirmCard(message),
           ],
         ],
+      ),
+    );
+  }
+
+  /// Mini Audio Player inside the AI Chat Bubble for Voice-Out responses
+  Widget _buildMiniAudioPlayer(ChatMessageEntity message) {
+    final isCurrentPlaying =
+        _activePlayingMessageId == message.id && _isAudioPlaying;
+
+    return GestureDetector(
+      key: Key('mini_audio_player_${message.id}'),
+      onTap: () => _togglePlayMessageAudio(message),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.primaryLight.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: const BoxDecoration(
+                gradient: AppColors.aiAccentGradient,
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Icon(
+                  isCurrentPlaying
+                      ? PhosphorIcons.pause(PhosphorIconsStyle.fill)
+                      : PhosphorIcons.play(PhosphorIconsStyle.fill),
+                  color: Colors.white,
+                  size: 14,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isCurrentPlaying
+                        ? 'Memutar Suara Coach...'
+                        : 'Putar Suara Coach',
+                    style: AppTypography.body.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primaryDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isCurrentPlaying
+                        ? 'Ketuk untuk jeda'
+                        : 'Balasan suara AI (In-Memory)',
+                    style: AppTypography.caption.copyWith(
+                      fontSize: 10.5,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(
+              isCurrentPlaying
+                  ? PhosphorIcons.waveform(PhosphorIconsStyle.bold)
+                  : PhosphorIcons.speakerHigh(PhosphorIconsStyle.bold),
+              size: 18,
+              color: AppColors.primary,
+            ),
+          ],
+        ),
       ),
     );
   }

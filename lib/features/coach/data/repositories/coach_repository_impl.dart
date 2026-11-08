@@ -18,6 +18,7 @@ import '../../../transactions/domain/repositories/transaction_repository.dart';
 import '../../domain/entities/chat_conversation_entity.dart';
 import '../../domain/entities/chat_message_entity.dart';
 import '../../domain/repositories/coach_repository.dart';
+import '../../domain/services/voice_io_service.dart';
 
 class CoachRepositoryImpl implements CoachRepository {
   final SupabaseClient client;
@@ -129,6 +130,7 @@ class CoachRepositoryImpl implements CoachRepository {
               createdAt: DateTime.parse(json['created_at']).toLocal(),
               structuredPayload: metadata,
               isConfirmed: metadata?['confirmed'] == true,
+              audioBase64: metadata?['audio_base64'] as String?,
             );
           }).toList();
 
@@ -363,6 +365,7 @@ class CoachRepositoryImpl implements CoachRepository {
     String? clientRequestId,
     String? receiptPath,
     String? receiptBase64,
+    bool requestAudio = false,
   }) async {
     final effectiveRequestId = clientRequestId ?? const Uuid().v4();
     final user = client.auth.currentUser;
@@ -379,7 +382,9 @@ class CoachRepositoryImpl implements CoachRepository {
       conversationId: effectiveConvId,
       senderType: ChatSenderType.user,
       content: message,
-      structuredPayload: receiptPath != null ? {'receipt_path': receiptPath} : null,
+      structuredPayload: receiptPath != null
+          ? {'receipt_path': receiptPath, 'request_audio': requestAudio}
+          : (requestAudio ? {'request_audio': true} : null),
       clientRequestId: effectiveRequestId,
       createdAt: DateTime.now(),
     );
@@ -387,6 +392,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
     String coachReply = '';
     Map<String, dynamic>? structuredData;
+    String? audioBase64;
     bool needsClarification = false;
     List<String> missingFields = [];
     ChatMessageStatus messageStatus = ChatMessageStatus.completed;
@@ -415,6 +421,7 @@ class CoachRepositoryImpl implements CoachRepository {
           'client_request_id': effectiveRequestId,
           'strictness_level': strictnessLevel,
           'client_date': clientDate,
+          'request_audio': requestAudio,
           'receipt_path': ?receiptPath,
           'receipt_base64': ?receiptBase64,
           'recent_history': recentHistory
@@ -444,8 +451,15 @@ class CoachRepositoryImpl implements CoachRepository {
                 .toList();
           }
           if (!needsClarification && data['structured_transaction'] != null) {
-            structuredData =
-                data['structured_transaction'] as Map<String, dynamic>;
+            structuredData = Map<String, dynamic>.from(
+              data['structured_transaction'] as Map,
+            );
+          }
+          if (requestAudio && data['audio_base64'] != null) {
+            final serverAudio = data['audio_base64'].toString().trim();
+            if (serverAudio.isNotEmpty) {
+              audioBase64 = serverAudio;
+            }
           }
           if (needsClarification) {
             messageStatus = ChatMessageStatus.needsClarification;
@@ -476,6 +490,18 @@ class CoachRepositoryImpl implements CoachRepository {
           messageStatus = ChatMessageStatus.needsClarification;
         }
       }
+    }
+
+    // Ensure strict Contextual Voice I/O contract:
+    // - requestAudio == true  -> audioBase64 is ALWAYS populated (server Gemini TTS or synthesized WAV fallback)
+    // - requestAudio == false -> audioBase64 is STRICTLY null (Zero bandwidth/memory overhead)
+    if (requestAudio) {
+      if (audioBase64 == null || audioBase64.isEmpty) {
+        audioBase64 =
+            VoiceIoService.generateSynthesizedCoachVoiceWavBase64(coachReply);
+      }
+    } else {
+      audioBase64 = null;
     }
 
     // 4. Direct Client DB Persistence to Supabase (Fallback ONLY if Edge Function was not used or failed)
@@ -591,6 +617,7 @@ class CoachRepositoryImpl implements CoachRepository {
       status: messageStatus,
       needsClarification: needsClarification,
       missingFields: missingFields,
+      audioBase64: audioBase64,
     );
 
     _localChatHistory.add(assistantMsg);

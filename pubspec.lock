@@ -73,6 +73,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  audio_session:
+    dependency: transitive
+    description:
+      name: audio_session
+      sha256: f9e7711a0e24ca8b40f5d7ac374c3c6e55016f3157912badd18199cdbbca5c4d
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.4"
   barcode:
     dependency: transitive
     description:
@@ -632,6 +640,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.12.0"
+  just_audio:
+    dependency: "direct main"
+    description:
+      name: just_audio
+      sha256: e60aa97b233ddea025e13dfac59195207f528fa5e9e4a4a49a8c0766701e5fe6
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.10.6"
+  just_audio_platform_interface:
+    dependency: transitive
+    description:
+      name: just_audio_platform_interface
+      sha256: "2532c8d6702528824445921c5ff10548b518b13f808c2e34c2fd54793b999a6a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.6.0"
+  just_audio_web:
+    dependency: transitive
+    description:
+      name: just_audio_web
+      sha256: "6ba8a2a7e87d57d32f0f7b42856ade3d6a9fbe0f1a11fabae0a4f00bb73f0663"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.16"
   leak_tracker:
     dependency: transitive
     description:
@@ -848,6 +880,54 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.4"
+  permission_handler:
+    dependency: "direct main"
+    description:
+      name: permission_handler
+      sha256: e6bcecadfe40df6b888141f23cbaf6ba6c3da49fb33f6ff887d060dd48544fbd
+      url: "https://pub.dev"
+    source: hosted
+    version: "13.0.2"
+  permission_handler_android:
+    dependency: transitive
+    description:
+      name: permission_handler_android
+      sha256: baf93fbf80008c240b2cf5e6d62e9495ea7727fe327444d135c44bfff9af6b6e
+      url: "https://pub.dev"
+    source: hosted
+    version: "14.1.1"
+  permission_handler_apple:
+    dependency: transitive
+    description:
+      name: permission_handler_apple
+      sha256: "82d31c9b321c45785ccd73bce9c63af17037116193b4000b998a4363059adb6e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "9.6.5"
+  permission_handler_html:
+    dependency: transitive
+    description:
+      name: permission_handler_html
+      sha256: "6ea98b3f17f60d3b527f2647ed2ab4dc0f6bfe25b22cb1c363f5d8f62252f6ac"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.4+1"
+  permission_handler_platform_interface:
+    dependency: transitive
+    description:
+      name: permission_handler_platform_interface
+      sha256: ed86a61c190258fdd65de395ea0632822e3415c1faec38eae0c31b479c28a531
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.4.1"
+  permission_handler_windows:
+    dependency: transitive
+    description:
+      name: permission_handler_windows
+      sha256: "210031f00c32d61038fb4175d82dd874a426bfbae2c2af774bd4e5abb5cac755"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.4"
   petitparser:
     dependency: transitive
     description:
@@ -960,6 +1040,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.0"
+  rxdart:
+    dependency: transitive
+    description:
+      name: rxdart
+      sha256: "5c3004a4a8dbb94bd4bf5412a4def4acdaa12e12f269737a5751369e12d1a962"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.28.0"
   shared_preferences:
     dependency: "direct main"
     description:
@@ -1077,6 +1165,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
+  speech_to_text:
+    dependency: "direct main"
+    description:
+      name: speech_to_text
+      sha256: "75587f7400f485fdf166beacd471549d98fe5d58e634f708916bb65dec05d6a4"
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.4.0"
+  speech_to_text_platform_interface:
+    dependency: transitive
+    description:
+      name: speech_to_text_platform_interface
+      sha256: "7e447356be3074c471223c9d179ef3f822475350b67ca923ec71ab3bf2ede214"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.5.0"
+  speech_to_text_windows:
+    dependency: transitive
+    description:
+      name: speech_to_text_windows
+      sha256: "2d1d10565b23262386b453b33656299608dc7a66784453735d6c1318f13f44d7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.1"
   stack_trace:
     dependency: transitive
     description:
@@ -1133,6 +1245,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.18.3"
+  synchronized:
+    dependency: transitive
+    description:
+      name: synchronized
+      sha256: c254ade258ec8282947a0acbbc90b9575b4f19673533ee46f2f6e9b3aeefd7c0
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.4.0"
   term_glyph:
     dependency: transitive
     description:

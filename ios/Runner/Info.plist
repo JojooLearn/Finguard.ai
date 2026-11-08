@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>FinGuard membutuhkan akses mikrofon agar kamu bisa mencatat transaksi dan berbicara langsung dengan AI Coach melalui suara.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>FinGuard membutuhkan pengenalan suara (Speech-to-Text) untuk mengubah pesan suaramu menjadi teks bagi AI Coach.</string>
 </dict>
 </plist>

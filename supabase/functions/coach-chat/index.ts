@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthenticatedUser } from "../_shared/auth.ts";
 import { ApiError, errorResponse, jsonResponse } from "../_shared/errors.ts";
-import { callGemini } from "../_shared/gemini.ts";
+import { callGemini, generateGeminiSpeechAudio } from "../_shared/gemini.ts";
 import {
   getUserFinancialContext,
   fetchOnDemandStockAnalysis,
@@ -92,7 +92,35 @@ serve(async (req) => {
       client_date,
       receipt_path,
       receipt_base64,
+      request_audio,
     } = await req.json();
+
+    // Dynamic Gemini Modality & Speech Configuration based on request_audio flag
+    const geminiConfig: {
+      responseModalities: string[];
+      speechConfig?: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: string;
+          };
+        };
+      };
+    } = {
+      responseModalities: ["TEXT"],
+    };
+
+    if (request_audio === true) {
+      geminiConfig.responseModalities = ["TEXT", "AUDIO"];
+      geminiConfig.speechConfig = {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: "Puck",
+          },
+        },
+      };
+    } else {
+      geminiConfig.responseModalities = ["TEXT"];
+    }
     if ((!message || typeof message !== "string") && !receipt_path && !receipt_base64) {
       throw new ApiError("Pesan atau foto nota tidak boleh kosong", 400, "INVALID_MESSAGE");
     }
@@ -1082,13 +1110,28 @@ ATURAN WAJIB KLASIFIKASI INTENT:
       aiStatus = "needs_clarification";
     }
 
-    const resultRef = {
+    // Generate AI Voice-Out ONLY when request_audio === true (Bandwidth & Compute Isolation)
+    let audioBase64: string | null = null;
+    if (request_audio === true && aiResult.reply) {
+      audioBase64 = await generateGeminiSpeechAudio(
+        aiResult.reply,
+        geminiConfig.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName || "Puck"
+      );
+    }
+
+    const structuredTxPayload = hasTransaction && !needsClarification ? aiResult.structured_transaction : null;
+    const assistantMetadata = structuredTxPayload
+      ? (audioBase64 ? { ...structuredTxPayload, audio_base64: audioBase64 } : structuredTxPayload)
+      : (audioBase64 ? { audio_base64: audioBase64 } : {});
+
+    const resultRef: Record<string, unknown> = {
       reply: aiResult.reply,
       intent: aiResult.intent,
-      structured_transaction: hasTransaction && !needsClarification ? aiResult.structured_transaction : null,
+      structured_transaction: structuredTxPayload,
       needs_clarification: needsClarification,
       missing_fields: aiResult.missing_fields || [],
       confidence: aiResult.confidence || 0,
+      ...(audioBase64 ? { audio_base64: audioBase64 } : {}),
     };
 
     // Persist messages to chat_messages table
@@ -1105,7 +1148,7 @@ ATURAN WAJIB KLASIFIKASI INTENT:
             role: "user",
             content: message,
             message_status: "completed",
-            metadata: { client_request_id },
+            metadata: { client_request_id, request_audio: request_audio === true },
           })
           .select("id")
           .maybeSingle();
@@ -1133,7 +1176,7 @@ ATURAN WAJIB KLASIFIKASI INTENT:
             role: "assistant",
             content: aiResult.reply || "",
             message_status: needsClarification ? "needs_clarification" : "completed",
-            metadata: resultRef.structured_transaction || {},
+            metadata: assistantMetadata,
           })
           .select("id")
           .maybeSingle();
@@ -1194,10 +1237,11 @@ ATURAN WAJIB KLASIFIKASI INTENT:
     return jsonResponse({
       reply: aiResult.reply || "",
       intent: aiResult.intent || "general_chat",
-      structured_transaction: hasTransaction && !needsClarification ? aiResult.structured_transaction : null,
+      structured_transaction: structuredTxPayload,
       needs_clarification: needsClarification,
       missing_fields: aiResult.missing_fields || [],
       confidence: aiResult.confidence || 0,
+      ...(audioBase64 ? { audio_base64: audioBase64 } : {}),
       conversation_id: activeConversationId,
       client_request_id,
       timestamp: new Date().toISOString(),

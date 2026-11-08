@@ -68,6 +68,7 @@ class ChatMessageEntity extends Equatable {
   final bool needsClarification;
   final List<String> missingFields;
   final bool isConfirmed;
+  final String? audioBase64;
 
   const ChatMessageEntity({
     required this.id,
@@ -81,6 +82,7 @@ class ChatMessageEntity extends Equatable {
     this.needsClarification = false,
     this.missingFields = const [],
     this.isConfirmed = false,
+    this.audioBase64,
   });
 
   ChatMessageEntity copyWith({
@@ -95,6 +97,7 @@ class ChatMessageEntity extends Equatable {
     bool? needsClarification,
     List<String>? missingFields,
     bool? isConfirmed,
+    String? audioBase64,
   }) {
     return ChatMessageEntity(
       id: id ?? this.id,
@@ -108,10 +111,26 @@ class ChatMessageEntity extends Equatable {
       needsClarification: needsClarification ?? this.needsClarification,
       missingFields: missingFields ?? this.missingFields,
       isConfirmed: isConfirmed ?? this.isConfirmed,
+      audioBase64: audioBase64 ?? this.audioBase64,
     );
   }
 
   bool get isUser => senderType == ChatSenderType.user;
+
+  /// Resolved Base64 audio payload (from direct field or metadata fallback)
+  String? get effectiveAudioBase64 {
+    if (audioBase64 != null && audioBase64!.isNotEmpty) {
+      return audioBase64;
+    }
+    final fromMeta = structuredPayload?['audio_base64'];
+    if (fromMeta is String && fromMeta.isNotEmpty) {
+      return fromMeta;
+    }
+    return null;
+  }
+
+  /// Whether this assistant message contains AI Voice-Out audio
+  bool get hasAudio => !isUser && effectiveAudioBase64 != null;
 
   /// Whether this message has a pending extracted transaction awaiting confirmation
   bool get hasPendingExtraction =>
@@ -138,5 +157,6 @@ class ChatMessageEntity extends Equatable {
         needsClarification,
         missingFields,
         isConfirmed,
+        audioBase64,
       ];
 }
