@@ -25,104 +25,17 @@ class StockSignalDashboardCard extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Text(
-                  'Radar Sinyal Saham',
-                  style: AppTypography.sectionLabel.copyWith(fontSize: 16),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2.5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        PhosphorIcons.chartLineUp(PhosphorIconsStyle.bold),
-                        size: 11,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      const Text(
-                        'Trade',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            Text(
+              'Radar Sinyal Saham',
+              style: AppTypography.sectionLabel.copyWith(fontSize: 16),
             ),
-            Row(
-              children: [
-                GestureDetector(
-                  onTap: () {
-                    context.read<StockSignalListCubit>().refresh();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                          'Menyinkronkan radar tren pasar terkini...',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        backgroundColor: AppColors.primary,
-                        duration: const Duration(seconds: 1),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3.5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          PhosphorIcons.arrowsClockwise(PhosphorIconsStyle.bold),
-                          size: 11,
-                          color: AppColors.primary,
-                        ),
-                        const SizedBox(width: 4),
-                        const Text(
-                          'Update Pasar',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () => _showInfoDisclaimerSheet(context),
-                  child: Icon(
-                    Icons.info_outline_rounded,
-                    size: 18,
-                    color: AppColors.textSecondary.withValues(alpha: 0.7),
-                  ),
-                ),
-              ],
+            GestureDetector(
+              onTap: () => _showInfoDisclaimerSheet(context),
+              child: Icon(
+                Icons.info_outline_rounded,
+                size: 18,
+                color: AppColors.textSecondary.withValues(alpha: 0.7),
+              ),
             ),
           ],
         ),
