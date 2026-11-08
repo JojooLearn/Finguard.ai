@@ -47,7 +47,7 @@ class VoiceListeningModal extends StatefulWidget {
 class _VoiceListeningModalState extends State<VoiceListeningModal>
     with SingleTickerProviderStateMixin {
   late final AnimationController _waveController;
-  String _recognizedWords = '';
+  final TextEditingController _textEditingController = TextEditingController();
   double _soundLevel = 0.0;
   bool _isListening = false;
   bool _isAutoSending = false;
@@ -62,6 +62,10 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
       duration: const Duration(milliseconds: 1400),
     )..repeat();
 
+    _textEditingController.addListener(() {
+      if (mounted) setState(() {});
+    });
+
     _startListeningSession();
   }
 
@@ -69,11 +73,15 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
   void dispose() {
     _autoSendTimer?.cancel();
     _waveController.dispose();
+    _textEditingController.dispose();
     widget.voiceIoService.stopListening();
     super.dispose();
   }
 
   Future<void> _startListeningSession() async {
+    _autoSendTimer?.cancel();
+    _isAutoSending = false;
+
     setState(() {
       _isListening = true;
       _statusMessage = 'Mendengarkan ucapanmu...';
@@ -83,14 +91,17 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
       onResult: (recognizedWords, isFinalResult) {
         if (!mounted) return;
         setState(() {
-          _recognizedWords = recognizedWords;
+          _textEditingController.text = recognizedWords;
+          _textEditingController.selection = TextSelection.fromPosition(
+            TextPosition(offset: recognizedWords.length),
+          );
         });
 
-        // If the speech engine gives a final result with non-empty text, trigger auto-send after a brief pause
+        // Auto-send when final result is reached and not empty
         if (isFinalResult && recognizedWords.trim().isNotEmpty && !_isAutoSending) {
           _isAutoSending = true;
           _autoSendTimer?.cancel();
-          _autoSendTimer = Timer(const Duration(milliseconds: 750), () {
+          _autoSendTimer = Timer(const Duration(milliseconds: 800), () {
             if (mounted) {
               _handleSend();
             }
@@ -100,27 +111,36 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
       onSoundLevelChange: (level) {
         if (!mounted) return;
         setState(() {
-          // Normalize level (typically -2 to 10 on Android)
+          // Normalize sound level
           _soundLevel = math.max(0.0, math.min(1.0, (level + 2.0) / 10.0));
         });
       },
       onStatus: (status) {
         if (!mounted) return;
         if (status == 'notListening' || status == 'done') {
-          setState(() => _isListening = false);
+          setState(() {
+            _isListening = false;
+            if (_textEditingController.text.trim().isEmpty) {
+              _statusMessage = 'Sesi dengar selesai. Ketuk mikrofon untuk mulai lagi.';
+            }
+          });
+        } else if (status == 'listening') {
+          setState(() {
+            _isListening = true;
+            _statusMessage = 'Mendengarkan ucapanmu...';
+          });
         }
       },
       onError: (errMsg) {
         if (!mounted) return;
-        if (_recognizedWords.trim().isNotEmpty) {
-          // If we already have recognized text, ignore trailing timeout errors
+        if (_textEditingController.text.trim().isNotEmpty) {
           return;
         }
         setState(() {
           _isListening = false;
           _statusMessage = errMsg.contains('no_match') || errMsg.contains('timeout')
-              ? 'Suara belum terdeteksi. Coba bicara lebih dekat ya!'
-              : 'Mikrofon: $errMsg';
+              ? 'Suara belum terdeteksi. Ketuk mikrofon dan bicara lebih dekat ya!'
+              : 'Status suara: $errMsg';
         });
       },
     );
@@ -128,13 +148,20 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
     if (!started && mounted) {
       setState(() {
         _isListening = false;
-        _statusMessage = 'Gagal mengakses mikrofon. Pastikan izin sudah aktif.';
+        _statusMessage = 'Gagal memulai rekaman. Ketuk mikrofon untuk coba lagi.';
       });
     }
   }
 
+  Future<void> _stopListeningSession() async {
+    await widget.voiceIoService.stopListening();
+    if (mounted) {
+      setState(() => _isListening = false);
+    }
+  }
+
   void _handleSend() {
-    final textToSend = _recognizedWords.trim();
+    final textToSend = _textEditingController.text.trim();
     if (textToSend.isEmpty) return;
 
     _autoSendTimer?.cancel();
@@ -145,13 +172,13 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
 
   void _handleCancel() {
     _autoSendTimer?.cancel();
-    widget.voiceIoService.stopListening();
+    widget.voiceIoService.cancelListening();
     widget.onCancel();
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasWords = _recognizedWords.trim().isNotEmpty;
+    final hasWords = _textEditingController.text.trim().isNotEmpty;
 
     return Container(
       decoration: const BoxDecoration(
@@ -212,7 +239,9 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                     Text(
                       _isListening
                           ? 'Mendengarkan Suara...'
-                          : 'Pengenalan Suara Selesai',
+                          : (_textEditingController.text.isNotEmpty
+                              ? 'Siap Dikirim'
+                              : 'Ketuk Mic untuk Bicara'),
                       style: GoogleFonts.urbanist(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -248,42 +277,68 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
               builder: (context, child) {
                 final wavePhase = _waveController.value * 2 * math.pi;
                 final pulseScale = _isListening
-                    ? 1.0 + (math.sin(wavePhase) * 0.06) + (_soundLevel * 0.12)
+                    ? 1.0 + (math.sin(wavePhase) * 0.05) + (_soundLevel * 0.12)
                     : 1.0;
 
                 return Column(
                   children: [
-                    // Mic Orb with ripple circles
-                    Transform.scale(
-                      scale: pulseScale,
-                      child: Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: AppColors.aiAccentGradient,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withValues(
-                                alpha: _isListening ? 0.35 : 0.15,
+                    // Mic Orb (tappable to start/stop listening)
+                    GestureDetector(
+                      onTap: () {
+                        if (_isListening) {
+                          _stopListeningSession();
+                        } else {
+                          _startListeningSession();
+                        }
+                      },
+                      child: Transform.scale(
+                        scale: pulseScale,
+                        child: Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: _isListening
+                                ? AppColors.aiAccentGradient
+                                : const LinearGradient(
+                                    colors: [Color(0xFF94A3B8), Color(0xFF64748B)],
+                                  ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: (_isListening
+                                        ? AppColors.primary
+                                        : const Color(0xFF64748B))
+                                    .withValues(
+                                  alpha: _isListening ? 0.35 : 0.15,
+                                ),
+                                blurRadius: 24,
+                                spreadRadius: _isListening ? 4 : 1,
                               ),
-                              blurRadius: 24,
-                              spreadRadius: _isListening ? 4 : 1,
+                            ],
+                          ),
+                          child: Center(
+                            child: Icon(
+                              _isListening
+                                  ? PhosphorIcons.microphone(PhosphorIconsStyle.fill)
+                                  : PhosphorIcons.microphone(PhosphorIconsStyle.bold),
+                              color: Colors.white,
+                              size: 36,
                             ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Icon(
-                            _isListening
-                                ? PhosphorIcons.microphone(PhosphorIconsStyle.fill)
-                                : PhosphorIcons.microphoneSlash(PhosphorIconsStyle.fill),
-                            color: Colors.white,
-                            size: 36,
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 8),
+                    Text(
+                      _isListening
+                          ? 'Ketuk untuk jeda'
+                          : 'Ketuk mikrofon untuk bicara',
+                      style: GoogleFonts.urbanist(
+                        fontSize: 11.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     // Dynamic Waveform Bars
                     _buildWaveformBars(wavePhase),
@@ -293,18 +348,18 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
             ),
             const SizedBox(height: 20),
 
-            // Live Transcription Card
+            // Live Transcription & Editable Text Card
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               constraints: const BoxConstraints(minHeight: 84),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
                   color: hasWords
-                      ? AppColors.primary.withValues(alpha: 0.3)
-                      : AppColors.neutral200.withValues(alpha: 0.7),
+                      ? AppColors.primary.withValues(alpha: 0.35)
+                      : AppColors.neutral200.withValues(alpha: 0.8),
                   width: 1.2,
                 ),
               ),
@@ -322,7 +377,7 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        hasWords ? 'Suara Terdeteksi:' : 'Petunjuk:',
+                        hasWords ? 'Suara Terdeteksi (bisa diedit):' : 'Petunjuk:',
                         style: GoogleFonts.urbanist(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
@@ -334,13 +389,20 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                   ),
                   const SizedBox(height: 6),
                   if (hasWords) ...[
-                    Text(
-                      '"$_recognizedWords"',
+                    TextField(
+                      controller: _textEditingController,
+                      maxLines: 3,
+                      minLines: 1,
                       style: GoogleFonts.urbanist(
                         fontSize: 15.5,
                         fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary,
                         height: 1.4,
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
                       ),
                     ),
                     if (_isAutoSending) ...[
@@ -389,10 +451,18 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                 const SizedBox(width: 10),
                 Expanded(
                   child: AppButton(
-                    label: hasWords ? 'Kirim Sekarang' : 'Mendengarkan...',
-                    onPressed: hasWords ? _handleSend : null,
-                    icon: const Icon(
-                      Icons.arrow_upward_rounded,
+                    label: hasWords
+                        ? 'Kirim Sekarang'
+                        : (_isListening ? 'Mendengarkan...' : 'Mulai Bicara'),
+                    onPressed: hasWords
+                        ? _handleSend
+                        : (_isListening ? null : _startListeningSession),
+                    icon: Icon(
+                      hasWords
+                          ? Icons.arrow_upward_rounded
+                          : (_isListening
+                              ? PhosphorIcons.waveform(PhosphorIconsStyle.bold)
+                              : PhosphorIcons.microphone(PhosphorIconsStyle.fill)),
                       color: Colors.white,
                       size: 18,
                     ),
@@ -417,11 +487,11 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
         final offset = index * 0.6;
         final sineVal = _isListening
             ? (math.sin(phase + offset) + 1.0) / 2.0
-            : 0.2;
-        final dynamicBoost = _soundLevel * 22.0;
+            : 0.1;
+        final dynamicBoost = _soundLevel * 30.0;
         final barHeight = math.max(
           6.0,
-          (baseHeights[index] * 0.45) + (sineVal * baseHeights[index] * 0.55) + dynamicBoost,
+          (baseHeights[index] * 0.35) + (sineVal * baseHeights[index] * 0.65) + dynamicBoost,
         );
 
         return Container(
@@ -430,13 +500,18 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
           height: barHeight,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(4),
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFF8B5CF6),
-                Color(0xFF6366F1),
-              ],
+              colors: _isListening
+                  ? const [
+                      Color(0xFF8B5CF6),
+                      Color(0xFF6366F1),
+                    ]
+                  : [
+                      const Color(0xFFCBD5E1),
+                      const Color(0xFF94A3B8),
+                    ],
             ),
           ),
         );
@@ -444,4 +519,3 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
     );
   }
 }
-

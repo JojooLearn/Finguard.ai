@@ -85,9 +85,12 @@ class VoiceIoService {
           onError: (err) => onError?.call(err.errorMsg),
           options: [
             SpeechToText.androidNoBluetooth,
-            SpeechToText.androidIntentLookup,
           ],
         );
+      }
+      _speechToText.statusListener = onStatus;
+      if (onError != null) {
+        _speechToText.errorListener = (err) => onError(err.errorMsg);
       }
       return _isInitialized;
     } catch (e) {
@@ -116,21 +119,24 @@ class VoiceIoService {
     );
     if (!ready) return false;
 
+    // Reset any previously active listening session cleanly
+    try {
+      if (_speechToText.isListening) {
+        await _speechToText.cancel();
+      }
+    } catch (_) {}
+
     // Fast-resolve preferred locale without hanging broadcast queries
-    String effectiveLocale = localeId ?? 'id_ID';
-    if (localeId == null) {
+    String? effectiveLocale = localeId;
+    if (effectiveLocale == null) {
       try {
         final sys = await _speechToText
             .systemLocale()
             .timeout(const Duration(milliseconds: 300), onTimeout: () => null);
         if (sys != null && sys.localeId.isNotEmpty) {
-          if (sys.localeId.toLowerCase().startsWith('id')) {
-            effectiveLocale = 'id_ID';
-          }
+          effectiveLocale = sys.localeId;
         }
-      } catch (_) {
-        effectiveLocale = 'id_ID';
-      }
+      } catch (_) {}
     }
 
     await _speechToText.listen(
@@ -139,8 +145,8 @@ class VoiceIoService {
       },
       onSoundLevelChange: onSoundLevelChange,
       listenOptions: SpeechListenOptions(
-        localeId: effectiveLocale,
-        listenMode: ListenMode.dictation,
+        localeId: effectiveLocale ?? 'id_ID',
+        listenMode: ListenMode.confirmation,
         partialResults: true,
         cancelOnError: false,
         pauseFor: const Duration(seconds: 4),
@@ -152,9 +158,18 @@ class VoiceIoService {
 
   /// Stops active STT recording.
   Future<void> stopListening() async {
-    if (_speechToText.isListening) {
-      await _speechToText.stop();
-    }
+    try {
+      if (_speechToText.isListening) {
+        await _speechToText.stop();
+      }
+    } catch (_) {}
+  }
+
+  /// Cancels active STT recording immediately.
+  Future<void> cancelListening() async {
+    try {
+      await _speechToText.cancel();
+    } catch (_) {}
   }
 
   /// Ensures raw audio bytes have a valid container header (RIFF WAV or MP3).
