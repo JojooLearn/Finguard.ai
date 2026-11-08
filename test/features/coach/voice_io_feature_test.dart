@@ -64,8 +64,8 @@ class FakeVoiceCoachRepository implements CoachRepository {
     String replyText;
     if (strictnessLevel != null && strictnessLevel >= 4) {
       replyText = isExpenseCommand
-          ? 'Nafsu jajan lu kayak lambung lapis baja njir! Draf makan Rp20.000 udah disiapin, buruan konfirmasi sebelum dompet lu nangis!'
-          : 'Gaya elit ekonomi menjerit njir! Mau nanya apaan lu? Dompet lu lagi sekarat tuh!';
+          ? 'Makan mulu lu anjing, lambung lu karet apa gimana bangsat?! Tuh draf makan Rp20.000 udah gua bikinin, buruan konfirmasi sebelum dompet lu mampus gembel!'
+          : 'Gaya lu elit tapi dompet melintir anjing! Mau nanya apaan lu? Mending ngaca dulu, duit lu udah sekarat total tolol!';
     } else if (strictnessLevel != null && strictnessLevel <= 2) {
       replyText = isExpenseCommand
           ? 'Wah semangat ya! Pengeluaran makan Rp20.000 sudah disiapkan drafnya. Cek dulu yuk sebelum disimpan.'
@@ -145,10 +145,7 @@ void main() {
     test(
       'AC-2 (Logika 2: Suara -> Teks+Suara): Voice STT input ("Catat makan 20 ribu") sends requestAudio: true and returns text, structured transaction, AND audio_base64',
       () async {
-        await coachCubit.sendMessage(
-          'Catat makan 20 ribu',
-          requestAudio: true,
-        );
+        await coachCubit.sendMessage('Catat makan 20 ribu', requestAudio: true);
 
         expect(fakeRepository.lastSentMessage, equals('Catat makan 20 ribu'));
         expect(fakeRepository.lastRequestAudioFlag, isTrue);
@@ -199,13 +196,16 @@ void main() {
           strictnessLevel: 5,
         );
 
-        expect(fakeRepository.lastSentMessage, equals('Mau beli iPhone 16 Pro'));
+        expect(
+          fakeRepository.lastSentMessage,
+          equals('Mau beli iPhone 16 Pro'),
+        );
         expect(fakeRepository.lastStrictnessLevel, equals(5));
 
         final state = coachCubit.state as CoachLoaded;
         final aiReply = state.messages.last;
         expect(aiReply.isUser, isFalse);
-        expect(aiReply.content, contains('Gaya elit ekonomi menjerit njir!'));
+        expect(aiReply.content, contains('Gaya elit ekonomi menjerit blok!'));
       },
     );
 

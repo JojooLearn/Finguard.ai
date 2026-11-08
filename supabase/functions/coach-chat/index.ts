@@ -287,7 +287,7 @@ serve(async (req) => {
       // Security 4: Magic Bytes Validation (File Signature)
       const isJpeg = uint8[0] === 0xFF && uint8[1] === 0xD8 && uint8[2] === 0xFF;
       const isPng = uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4E && uint8[3] === 0x47 &&
-                    uint8[4] === 0x0D && uint8[5] === 0x0A && uint8[6] === 0x1A && uint8[7] === 0x0A;
+        uint8[4] === 0x0D && uint8[5] === 0x0A && uint8[6] === 0x1A && uint8[7] === 0x0A;
 
       if (!isJpeg && !isPng) {
         throw new ApiError("File ditolak: File bukan gambar asli (Magic Bytes mismatch)!", 400, "INVALID_MAGIC_BYTES");
@@ -517,7 +517,7 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
             content: m.content,
           }));
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     const initialCandidateTickers = extractStockTickers(message, [], historyArray);
@@ -608,22 +608,22 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     // Strictness Persona
     let personaGuideline = "";
     if (strictness >= 4) {
-      personaGuideline = `GAYA BICARA: "MODE KRITIS / SAVAGE ROAST TONGKRONGAN PEDAS" (Level ${strictness}/5).
-- PERINGATAN WAJIB: Pengguna MEMILIH SENDIRI mode ini karena ingin di-roasting keras, pedas, ceplas-ceplos tanpa filter basa-basi manis agar sadar finansial!
-- Persona Anda adalah sohib tongkrongan yang super sarkas, pedas, tajam, dan tanpa ampun menampar realitas saat pengguna mulai halu, konsumtif, atau boros!
-- Gunakan bahasa tongkrongan Jakarta yang raw, ceplas-ceplos, dan menusuk (lu/gue, njir, anjir, tolol, dongo, halu, koplak, kaga tau diri, sadar diri, boncos, gaya elit ekonomi menjerit/sekarat, lambung lapis baja, dompet megap-megap).
-- Jangan ragu roasting keras gaya konsumtif atau pertanyaan aneh pengguna:
-  * "Gaya elit ekonomi menjerit njir! Sadar diri dulu, isi dompet lu aja lagi megap-megap mau sok gaya!"
-  * "Mau beli barang mahal? Nomboknya mau pake apa? Daun? Ginjal lu?!"
-  * "Nafsu jajan lu kayak lambung lapis baja, tapi giliran akhir bulan nangis makan promag!"
-  * "Jangan sok hedon dongo, pos kebutuhan pokok atau celengan darurat lu aja masih memprihatinkan!"
+      personaGuideline = `GAYA BICARA: "MODE KRITIS / SAVAGE ROAST TONGKRONGAN TOXIC PARAH" (Level ${strictness}/5).
+- PERINGATAN WAJIB: Pengguna MEMILIH SENDIRI mode ini karena ingin di-roasting luar biasa kasar, bajingan, dan tanpa filter basa-basi manis agar sadar finansial!
+- Persona Anda adalah sohib tongkrongan paling bangsat, bermulut kotor, toksik, dan tanpa ampun menampar realitas saat pengguna mulai halu, konsumtif, atau boros!
+- Gunakan bahasa tongkrongan kasar yang raw, jorok, dan menusuk (lu/gue, anjing, bangsat, tolol, dongo, ngentot, memek, gembel, miskin kaga tau diri, mampus, sekarat total, ngaca anjing, otak di dengkul).
+- Jangan ragu roasting dan maki-maki gaya konsumtif atau pertanyaan tolol pengguna:
+  * "Gaya elit ekonomi menjerit anjing! Ngaca bangsat, isi dompet lu aja lagi mampus sekarat mau sok hedon!"
+  * "Mau beli barang mahal? Ngentot bener pikiran lu! Nomboknya mau pake apa? Jual memek? Ginjal lu?!"
+  * "Makan mulu lu anjing, lambung karet apa gimana bangsat?! Giliran akhir bulan gembel lu nangis makan promag!"
+  * "Jangan sok kaya dongo, celengan darurat lu aja masih ampas memprihatinkan, tolol banget piara gengsi!"
 - Hajar dan tampar dengan kalkulasi matematika nyata dari database pengguna (berapa tahun puasa nabung, berapa defisit cicilan, sisa jatah belanja tinggal berapa).
-- DILARANG menggunakan bahasa formal atau basa-basi sopan perbankan di mode ini!
-- HINDARI spam emoji! Cukup teks yang tajam, pedas, nendang, dan bikin tobat belanja.`;
+- DILARANG KERAS menggunakan bahasa formal, sopan, atau sensor kata! Lepaskan semua filter kesopanan!
+- HINDARI spam emoji! Cukup teks makian yang tajam, pedas, kasar, dan bikin tobat belanja.`;
     } else if (strictness <= 2) {
       personaGuideline = `GAYA BICARA: "TEMAN SANTAI & RAMAH" (Level ${strictness}/5).
 - Bersikaplah hangat, suportif, akrab, dan santai seperti teman ngopi.
-- Berikan apresiasi saat pengguna hemat atau mencatat transaksi, dan semangati untuk menabung.
+- Berikan apresiasi saat pengguna hemat or mencatat transaksi, dan semangati untuk menabung.
 - Jelaskan kondisi dompet dengan bahasa sehari-hari yang mudah dicerna, tanpa istilah rumit.
 - HINDARI spam emoji!`;
     } else {
@@ -636,11 +636,11 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     const accountsSummary =
       finContext.accounts && finContext.accounts.length > 0
         ? finContext.accounts
-            .map(
-              (a) =>
-                `  • ${a.name} (${a.type}): Rp${a.currentBalance.toLocaleString("id-ID")}${a.isDefault ? " [Rekening/Dompet Utama]" : ""}`,
-            )
-            .join("\n")
+          .map(
+            (a) =>
+              `  • ${a.name} (${a.type}): Rp${a.currentBalance.toLocaleString("id-ID")}${a.isDefault ? " [Rekening/Dompet Utama]" : ""}`,
+          )
+          .join("\n")
         : `  • Dompet Utama (cash): Rp${finContext.availableCash.toLocaleString("id-ID")}`;
 
     const totalMonthExpense =
@@ -679,32 +679,32 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     const goalSummary =
       finContext.goals && finContext.goals.length > 0
         ? finContext.goals
-            .map(
-              (g) =>
-                `  • ${g.name} [Tipe: ${g.goalType} | ${getPriorityLabel(g.priority)}]: Target Rp${g.target.toLocaleString("id-ID")}, Terkumpul Rp${g.current.toLocaleString("id-ID")} (${g.progressPercent}%)${g.remaining > 0 ? `, Kurang Rp${g.remaining.toLocaleString("id-ID")}` : " [Sudah Tercapai!]"}${g.targetDate ? `, Target Selesai: ${g.targetDate}` : ""}`,
-            )
-            .join("\n")
+          .map(
+            (g) =>
+              `  • ${g.name} [Tipe: ${g.goalType} | ${getPriorityLabel(g.priority)}]: Target Rp${g.target.toLocaleString("id-ID")}, Terkumpul Rp${g.current.toLocaleString("id-ID")} (${g.progressPercent}%)${g.remaining > 0 ? `, Kurang Rp${g.remaining.toLocaleString("id-ID")}` : " [Sudah Tercapai!]"}${g.targetDate ? `, Target Selesai: ${g.targetDate}` : ""}`,
+          )
+          .join("\n")
         : "  (Belum ada target tabungan)";
 
     const debtsSummary =
       finContext.debts && finContext.debts.length > 0
         ? finContext.debts
-            .map(
-              (d) =>
-                `  • ${d.name}: Cicilan Rp${d.monthlyPayment.toLocaleString("id-ID")}/bln (Sisa Tenor: ${d.remainingTenor}/${d.totalTenor} bln). Sisa Utang: Rp${d.remainingAmount.toLocaleString("id-ID")}. Bunga: ${d.annualInterestRate}%/tahun${d.appliedInterestAmount > 0 ? ` (Bunga tahunan +Rp${d.appliedInterestAmount.toLocaleString("id-ID")} bertambah otomatis setelah genap ${d.appliedYears} thn)` : ""}. Jatuh tempo tgl ${d.dueDay} tiap bulan. Mulai: ${d.startDate ? d.startDate.split("T")[0] : "-"}. [Status: ${d.isCompleted ? "Lunas" : "Aktif"}]`,
-            )
-            .join("\n")
+          .map(
+            (d) =>
+              `  • ${d.name}: Cicilan Rp${d.monthlyPayment.toLocaleString("id-ID")}/bln (Sisa Tenor: ${d.remainingTenor}/${d.totalTenor} bln). Sisa Utang: Rp${d.remainingAmount.toLocaleString("id-ID")}. Bunga: ${d.annualInterestRate}%/tahun${d.appliedInterestAmount > 0 ? ` (Bunga tahunan +Rp${d.appliedInterestAmount.toLocaleString("id-ID")} bertambah otomatis setelah genap ${d.appliedYears} thn)` : ""}. Jatuh tempo tgl ${d.dueDay} tiap bulan. Mulai: ${d.startDate ? d.startDate.split("T")[0] : "-"}. [Status: ${d.isCompleted ? "Lunas" : "Aktif"}]`,
+          )
+          .join("\n")
         : "  (Tidak ada komitmen cicilan aktif - Bebas Utang)";
 
     const contributionsSummary =
       finContext.goalContributions && finContext.goalContributions.length > 0
         ? finContext.goalContributions
-            .slice(0, 10)
-            .map(
-              (gc) =>
-                `  • [${gc.date}] Setor ke "${gc.goalName}": Rp${gc.amount.toLocaleString("id-ID")}${gc.note ? ` ("${gc.note}")` : ""}`,
-            )
-            .join("\n")
+          .slice(0, 10)
+          .map(
+            (gc) =>
+              `  • [${gc.date}] Setor ke "${gc.goalName}": Rp${gc.amount.toLocaleString("id-ID")}${gc.note ? ` ("${gc.note}")` : ""}`,
+          )
+          .join("\n")
         : "  (Belum ada riwayat setoran tabungan)";
 
     const monthlyReviewSummary = finContext.latestMonthlyReview
@@ -729,39 +729,39 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     const txLedgerFormatted =
       finContext.recentTransactions && finContext.recentTransactions.length > 0
         ? finContext.recentTransactions
-            .slice(0, 10)
-            .map((tx) => {
-              const sign = tx.type === "income" ? "+" : "-";
-              const noteStr = tx.note ? ` ("${tx.note}")` : "";
-              const accStr = tx.accountName ? ` [${tx.accountName}]` : "";
-              const timeStr = tx.createdAt ? ` [${formatWibTime(tx.createdAt)}]` : "";
-              return `  • [${tx.date}${timeStr}] ${tx.category}${accStr}${noteStr}: ${sign}Rp${tx.amount.toLocaleString("id-ID")}`;
-            })
-            .join("\n")
+          .slice(0, 10)
+          .map((tx) => {
+            const sign = tx.type === "income" ? "+" : "-";
+            const noteStr = tx.note ? ` ("${tx.note}")` : "";
+            const accStr = tx.accountName ? ` [${tx.accountName}]` : "";
+            const timeStr = tx.createdAt ? ` [${formatWibTime(tx.createdAt)}]` : "";
+            return `  • [${tx.date}${timeStr}] ${tx.category}${accStr}${noteStr}: ${sign}Rp${tx.amount.toLocaleString("id-ID")}`;
+          })
+          .join("\n")
         : "  (Belum ada riwayat transaksi)";
 
     const todayTxList =
       finContext.todayTransactions && finContext.todayTransactions.length > 0
         ? finContext.todayTransactions
-            .map(
-              (t) => {
-                const timeStr = t.createdAt ? ` [${formatWibTime(t.createdAt)}]` : "";
-                return `  • [${t.type}] ${t.category}: Rp${t.amount.toLocaleString("id-ID")}${timeStr}${t.note ? ` ("${t.note}")` : ""}`;
-              },
-            )
-            .join("\n")
+          .map(
+            (t) => {
+              const timeStr = t.createdAt ? ` [${formatWibTime(t.createdAt)}]` : "";
+              return `  • [${t.type}] ${t.category}: Rp${t.amount.toLocaleString("id-ID")}${timeStr}${t.note ? ` ("${t.note}")` : ""}`;
+            },
+          )
+          .join("\n")
         : "  (Belum ada catatan transaksi hari ini)";
 
     const yesterdayTxList =
       finContext.yesterdayTransactions && finContext.yesterdayTransactions.length > 0
         ? finContext.yesterdayTransactions
-            .map(
-              (t) => {
-                const timeStr = t.createdAt ? ` [${formatWibTime(t.createdAt)}]` : "";
-                return `  • [${t.type}] ${t.category}: Rp${t.amount.toLocaleString("id-ID")}${timeStr}${t.note ? ` ("${t.note}")` : ""}`;
-              },
-            )
-            .join("\n")
+          .map(
+            (t) => {
+              const timeStr = t.createdAt ? ` [${formatWibTime(t.createdAt)}]` : "";
+              return `  • [${t.type}] ${t.category}: Rp${t.amount.toLocaleString("id-ID")}${timeStr}${t.note ? ` ("${t.note}")` : ""}`;
+            },
+          )
+          .join("\n")
         : "  (Tidak ada catatan transaksi kemarin)";
 
     const foodBudget = finContext.activeBudgets.find((b) => /makan/i.test(b.category));
@@ -774,17 +774,17 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     const stockSignalsSummary =
       finContext.stockSignals && finContext.stockSignals.length > 0
         ? finContext.stockSignals
-            .map((s) => {
-              const lotPrice = s.lotPrice || s.priceAtSignal * 100;
-              const maxLotsFreeCash = freeCash > 0 ? Math.floor(freeCash / lotPrice) : 0;
-              const maxLotsLiquid = finContext.availableCash > 0 ? Math.floor(finContext.availableCash / lotPrice) : 0;
-              const rsiInfo = s.rsi != null ? ` | RSI: ${s.rsi}` : "";
-              const maInfo = s.maTrend ? ` | MA: ${s.maTrend}` : "";
-              return `  • [${s.ticker} - ${s.companyName}] Sinyal: ${s.signalType} | Harga: Rp${s.priceAtSignal.toLocaleString("id-ID")}/lembar (Rp${lotPrice.toLocaleString("id-ID")}/lot)${rsiInfo}${maInfo}
+          .map((s) => {
+            const lotPrice = s.lotPrice || s.priceAtSignal * 100;
+            const maxLotsFreeCash = freeCash > 0 ? Math.floor(freeCash / lotPrice) : 0;
+            const maxLotsLiquid = finContext.availableCash > 0 ? Math.floor(finContext.availableCash / lotPrice) : 0;
+            const rsiInfo = s.rsi != null ? ` | RSI: ${s.rsi}` : "";
+            const maInfo = s.maTrend ? ` | MA: ${s.maTrend}` : "";
+            return `  • [${s.ticker} - ${s.companyName}] Sinyal: ${s.signalType} | Harga: Rp${s.priceAtSignal.toLocaleString("id-ID")}/lembar (Rp${lotPrice.toLocaleString("id-ID")}/lot)${rsiInfo}${maInfo}
     Prospek & Alasan: "${s.technicalSummary || s.reason}"
     Keterjangkauan: Dari uang dingin bulanan bisa dapat ~${maxLotsFreeCash} lot (dari total saldo kas cair bisa ~${maxLotsLiquid} lot).`;
-            })
-            .join("\n")
+          })
+          .join("\n")
         : "  (Belum ada data sinyal saham aktif di database)";
 
     const preferencesSummary = finContext.preferences
