@@ -86,10 +86,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
       final created = await client
           .from('chat_conversations')
-          .insert({
-            'user_id': userId,
-            'title': 'Konsultasi FinGuard',
-          })
+          .insert({'user_id': userId, 'title': 'Konsultasi FinGuard'})
           .select('id')
           .single();
       _cachedConversationId = created['id'] as String;
@@ -162,7 +159,9 @@ class CoachRepositoryImpl implements CoachRepository {
                 conversationId: convId,
                 senderType: ChatSenderType.assistant,
                 content: welcomeText,
-                createdAt: DateTime.parse(welcomeInsert['created_at']).toLocal(),
+                createdAt: DateTime.parse(
+                  welcomeInsert['created_at'],
+                ).toLocal(),
               );
 
               _localChatHistory.clear();
@@ -284,13 +283,16 @@ class CoachRepositoryImpl implements CoachRepository {
               return Success(
                 ChatConversationEntity(
                   id: convId,
-                  title: existingUnused['title'] as String? ?? 'Percakapan Baru',
+                  title:
+                      existingUnused['title'] as String? ?? 'Percakapan Baru',
                   conversationType:
                       existingUnused['conversation_type'] as String? ?? 'coach',
-                  createdAt:
-                      DateTime.parse(existingUnused['created_at']).toLocal(),
-                  updatedAt:
-                      DateTime.parse(existingUnused['updated_at']).toLocal(),
+                  createdAt: DateTime.parse(
+                    existingUnused['created_at'],
+                  ).toLocal(),
+                  updatedAt: DateTime.parse(
+                    existingUnused['updated_at'],
+                  ).toLocal(),
                 ),
               );
             }
@@ -435,10 +437,7 @@ class CoachRepositoryImpl implements CoachRepository {
         };
 
         final res = await client.functions
-            .invoke(
-              'coach-chat',
-              body: invokeBody,
-            )
+            .invoke('coach-chat', body: invokeBody)
             .timeout(const Duration(seconds: 20));
 
         if (res.data != null && res.data is Map) {
@@ -500,8 +499,9 @@ class CoachRepositoryImpl implements CoachRepository {
     // - requestAudio == false -> audioBase64 is STRICTLY null (Zero bandwidth/memory overhead)
     if (requestAudio) {
       if (audioBase64 == null || audioBase64.isEmpty) {
-        audioBase64 =
-            VoiceIoService.generateSynthesizedCoachVoiceWavBase64(coachReply);
+        audioBase64 = VoiceIoService.generateSynthesizedCoachVoiceWavBase64(
+          coachReply,
+        );
       }
     } else {
       audioBase64 = null;
@@ -753,13 +753,16 @@ class CoachRepositoryImpl implements CoachRepository {
       try {
         final gcRes = await client
             .from('goal_contributions')
-            .select('id, amount, contribution_date, note, financial_goals(name)')
+            .select(
+              'id, amount, contribution_date, note, financial_goals(name)',
+            )
             .eq('user_id', currentUser.id)
             .order('contribution_date', ascending: false)
             .limit(10);
         final gcRows = gcRes as List<dynamic>;
-        contributions =
-            gcRows.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        contributions = gcRows
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
       } catch (_) {}
 
       try {
@@ -790,8 +793,8 @@ class CoachRepositoryImpl implements CoachRepository {
         a.year == b.year && a.month == b.month && a.day == b.day;
 
     bool isFoodTx(TransactionEntity tx) {
-      final textToCheck =
-          '${tx.category?.name ?? ''} ${tx.note ?? ''}'.toLowerCase();
+      final textToCheck = '${tx.category?.name ?? ''} ${tx.note ?? ''}'
+          .toLowerCase();
       return textToCheck.contains('makan') ||
           textToCheck.contains('minum') ||
           textToCheck.contains('kuliner') ||
@@ -813,7 +816,8 @@ class CoachRepositoryImpl implements CoachRepository {
         } else {
           totalExpense += tx.amount;
           final cat = tx.category?.name ?? 'Umum';
-          categoryExpenseMap[cat] = (categoryExpenseMap[cat] ?? 0.0) + tx.amount;
+          categoryExpenseMap[cat] =
+              (categoryExpenseMap[cat] ?? 0.0) + tx.amount;
         }
       }
 
@@ -851,11 +855,13 @@ class CoachRepositoryImpl implements CoachRepository {
         .where((d) => !d.isCompleted && d.remainingTenorMonths > 0)
         .toList();
     final paidDebtNotes = transactions
-        .where((tx) =>
-            tx.transactionType == TransactionType.expense &&
-            tx.transactionDate.year == now.year &&
-            tx.transactionDate.month == now.month &&
-            (tx.note ?? '').toLowerCase().startsWith('bayar '))
+        .where(
+          (tx) =>
+              tx.transactionType == TransactionType.expense &&
+              tx.transactionDate.year == now.year &&
+              tx.transactionDate.month == now.month &&
+              (tx.note ?? '').toLowerCase().startsWith('bayar '),
+        )
         .map((tx) => (tx.note ?? '').toLowerCase())
         .toList();
 
@@ -863,7 +869,9 @@ class CoachRepositoryImpl implements CoachRepository {
     if (activeDebts.isNotEmpty) {
       for (final d in activeDebts) {
         final dName = d.name.toLowerCase();
-        final alreadyPaid = paidDebtNotes.any((n) => n.contains('bayar $dName'));
+        final alreadyPaid = paidDebtNotes.any(
+          (n) => n.contains('bayar $dName'),
+        );
         if (!alreadyPaid) {
           unpaidMonthlyDebt += d.monthlyPayment;
         }
@@ -874,8 +882,9 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // Golden Financial Rule:
     // Uang Dingin Siap Pakai = Total Pemasukan - Total Pengeluaran Konsumsi - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Tabungan/Dana Darurat Bulan Ini
-    final effectiveConsumptionExpense =
-        totalExpense > 0 ? totalExpense : essentialExpenses;
+    final effectiveConsumptionExpense = totalExpense > 0
+        ? totalExpense
+        : essentialExpenses;
     final freeCash = FinancialCalculator.calculateAvailableFreeCash(
       totalIncome: effectiveIncome,
       totalConsumptionExpense: effectiveConsumptionExpense,
@@ -892,7 +901,8 @@ class CoachRepositoryImpl implements CoachRepository {
     if (_localChatHistory.length >= 2) {
       final prevMsg = _localChatHistory[_localChatHistory.length - 2];
       final prevLower = prevMsg.content.toLowerCase();
-      final askedForPrice = prevLower.contains('berapa harga') ||
+      final askedForPrice =
+          prevLower.contains('berapa harga') ||
           prevLower.contains('ketik nominalnya') ||
           prevLower.contains('ketik harganya');
       if (askedForPrice) {
@@ -1025,7 +1035,9 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // --- Intent D: Active Debts & Installment Prioritization Inquiry (TC-13) ---
     final isDebtInquiry =
-        (lower.contains('cicilan') || lower.contains('utang') || lower.contains('hutang')) &&
+        (lower.contains('cicilan') ||
+            lower.contains('utang') ||
+            lower.contains('hutang')) &&
         (isQuestion ||
             lower.contains('punya cicilan') ||
             lower.contains('lunasin') ||
@@ -1105,18 +1117,78 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // --- Intent S: Stock Signals & Hybrid On-Demand Analysis (Local Fallback) ---
     final stockTickerMap = <String, ({double price, String signal, String notes})>{
-      'BBCA': (price: 9250, signal: 'BUY', notes: 'Fundamental perbankan paling kokoh (ROE ~21%, PBV ~4.5x), akumulasi di area support MA20.'),
-      'BBRI': (price: 4450, signal: 'BUY', notes: 'Valuasi murah dengan dividend yield tinggi (~6.5%), rebound dari support kuat.'),
-      'BMRI': (price: 6150, signal: 'BUY', notes: 'Pertumbuhan kredit korporasi solid (ROE ~20%), tren uptrend di atas MA50.'),
-      'BBNI': (price: 4850, signal: 'BUY', notes: 'Valuasi paling diskon di antara Big 4 Bank (PER ~8.2x, PBV ~1.1x, Dividend Yield ~5.8%), sangat menarik untuk akumulasi bertahap.'),
-      'BRIS': (price: 2720, signal: 'BUY', notes: 'Pemimpin perbankan syariah dengan pertumbuhan laba agresif, momentum teknikal bullish.'),
-      'TLKM': (price: 2780, signal: 'HOLD', notes: 'Valuasi murah & dividen rutin (~6%), sedang konsolidasi di area support kunci.'),
-      'ASII': (price: 4920, signal: 'BUY', notes: 'PER sangat rendah (~6.2x) dengan kas tebal & dividen jumbo (~8.5%), menguji resisten 5.000.'),
-      'GOTO': (price: 68, signal: 'HOLD / HIGH RISK', notes: 'Harga 1 lot sangat terjangkau (~Rp6.800), volatilitas tinggi, cocok hanya untuk porsi spekulatif kecil.'),
-      'BUMI': (price: 124, signal: 'HOLD / SPECULATIVE', notes: 'Saham komoditas batubara berfluktuasi tinggi (high beta), wajib pasang batas cut loss ketat.'),
-      'ADRO': (price: 3680, signal: 'BUY', notes: 'Emiten energi dengan kas sangat tebal dan rasio valuasi PER ~4.5x.'),
-      'ICBP': (price: 11400, signal: 'BUY', notes: 'Saham consumer defensif tahan resesi dengan margin laba stabil.'),
-      'ANTM': (price: 1560, signal: 'BUY', notes: 'Sentimen komoditas emas & hilirisasi nikel mendukung tren menengah.'),
+      'BBCA': (
+        price: 9250,
+        signal: 'BUY',
+        notes:
+            'Fundamental perbankan paling kokoh (ROE ~21%, PBV ~4.5x), akumulasi di area support MA20.',
+      ),
+      'BBRI': (
+        price: 4450,
+        signal: 'BUY',
+        notes:
+            'Valuasi murah dengan dividend yield tinggi (~6.5%), rebound dari support kuat.',
+      ),
+      'BMRI': (
+        price: 6150,
+        signal: 'BUY',
+        notes:
+            'Pertumbuhan kredit korporasi solid (ROE ~20%), tren uptrend di atas MA50.',
+      ),
+      'BBNI': (
+        price: 4850,
+        signal: 'BUY',
+        notes:
+            'Valuasi paling diskon di antara Big 4 Bank (PER ~8.2x, PBV ~1.1x, Dividend Yield ~5.8%), sangat menarik untuk akumulasi bertahap.',
+      ),
+      'BRIS': (
+        price: 2720,
+        signal: 'BUY',
+        notes:
+            'Pemimpin perbankan syariah dengan pertumbuhan laba agresif, momentum teknikal bullish.',
+      ),
+      'TLKM': (
+        price: 2780,
+        signal: 'HOLD',
+        notes:
+            'Valuasi murah & dividen rutin (~6%), sedang konsolidasi di area support kunci.',
+      ),
+      'ASII': (
+        price: 4920,
+        signal: 'BUY',
+        notes:
+            'PER sangat rendah (~6.2x) dengan kas tebal & dividen jumbo (~8.5%), menguji resisten 5.000.',
+      ),
+      'GOTO': (
+        price: 68,
+        signal: 'HOLD / HIGH RISK',
+        notes:
+            'Harga 1 lot sangat terjangkau (~Rp6.800), volatilitas tinggi, cocok hanya untuk porsi spekulatif kecil.',
+      ),
+      'BUMI': (
+        price: 124,
+        signal: 'HOLD / SPECULATIVE',
+        notes:
+            'Saham komoditas batubara berfluktuasi tinggi (high beta), wajib pasang batas cut loss ketat.',
+      ),
+      'ADRO': (
+        price: 3680,
+        signal: 'BUY',
+        notes:
+            'Emiten energi dengan kas sangat tebal dan rasio valuasi PER ~4.5x.',
+      ),
+      'ICBP': (
+        price: 11400,
+        signal: 'BUY',
+        notes:
+            'Saham consumer defensif tahan resesi dengan margin laba stabil.',
+      ),
+      'ANTM': (
+        price: 1560,
+        signal: 'BUY',
+        notes:
+            'Sentimen komoditas emas & hilirisasi nikel mendukung tren menengah.',
+      ),
     };
 
     final matchedTickers = <String>[];
@@ -1126,7 +1198,8 @@ class CoachRepositoryImpl implements CoachRepository {
       }
     }
 
-    final isStockQuery = matchedTickers.isNotEmpty ||
+    final isStockQuery =
+        matchedTickers.isNotEmpty ||
         lower.contains('saham') ||
         lower.contains('sinyal') ||
         lower.contains('tradingview') ||
@@ -1143,7 +1216,9 @@ class CoachRepositoryImpl implements CoachRepository {
         for (final t in matchedTickers) {
           final info = stockTickerMap[t]!;
           final lotPrice = info.price * 100;
-          final maxLots = investableCash >= lotPrice ? (investableCash / lotPrice).floor() : 0;
+          final maxLots = investableCash >= lotPrice
+              ? (investableCash / lotPrice).floor()
+              : 0;
           buffer.writeln(
             '\n• **$t** — Harga ~${_formatRp(info.price)}/lembar (**${_formatRp(lotPrice)}/lot**) | Status: **${info.signal}**\n'
             '  - Prospek & Teknikal: ${info.notes}\n'
@@ -1167,10 +1242,6 @@ class CoachRepositoryImpl implements CoachRepository {
           '• **GOTO** (~Rp6.800/lot) — HIGH RISK: Harga lot receh, tapi batasi maksimal 5-10% dari uang dingin.',
         );
       }
-
-      buffer.writeln(
-        '\nIngat ya, ini murni analisa data bursa, fundamental, dan indikator teknikal, bukan jaminan cuan pasti. Keputusan dan risiko investasi 100% ada di tangan lu sendiri. Tetap disiplin jaga money management dan jangan fomo!',
-      );
 
       return (
         reply: buffer.toString(),
@@ -1391,7 +1462,8 @@ class CoachRepositoryImpl implements CoachRepository {
         (lower.contains('kemarin') || lower.contains('kemaren'));
 
     if (isBothTodayAndYesterdayQuery) {
-      final isFoodQuery = lower.contains('makan') ||
+      final isFoodQuery =
+          lower.contains('makan') ||
           lower.contains('minum') ||
           lower.contains('kuliner') ||
           previousHadFoodContext;
@@ -1399,14 +1471,14 @@ class CoachRepositoryImpl implements CoachRepository {
       final todayTarget = isFoodQuery
           ? todayTxs.where(isFoodTx).toList()
           : todayTxs
-              .where((tx) => tx.transactionType == TransactionType.expense)
-              .toList();
+                .where((tx) => tx.transactionType == TransactionType.expense)
+                .toList();
 
       final yesterdayTarget = isFoodQuery
           ? yesterdayTxs.where(isFoodTx).toList()
           : yesterdayTxs
-              .where((tx) => tx.transactionType == TransactionType.expense)
-              .toList();
+                .where((tx) => tx.transactionType == TransactionType.expense)
+                .toList();
 
       final totalToday = todayTarget.fold(0.0, (s, t) => s + t.amount);
       final totalYesterday = yesterdayTarget.fold(0.0, (s, t) => s + t.amount);
@@ -1423,11 +1495,14 @@ class CoachRepositoryImpl implements CoachRepository {
             ? 'Rincian Pengeluaran Makan Kemarin & Hari Ini:'
             : 'Rincian Pengeluaran Kemarin & Hari Ini:',
       );
-      buffer.writeln('• Kemarin ($dateYesterdayStr): ${_formatRp(totalYesterday)}');
+      buffer.writeln(
+        '• Kemarin ($dateYesterdayStr): ${_formatRp(totalYesterday)}',
+      );
       if (yesterdayTarget.isNotEmpty) {
         for (final tx in yesterdayTarget) {
-          final note =
-              tx.note != null && tx.note!.isNotEmpty ? ' (${tx.note})' : '';
+          final note = tx.note != null && tx.note!.isNotEmpty
+              ? ' (${tx.note})'
+              : '';
           buffer.writeln(
             '  - ${tx.category?.name ?? 'Makan & Minum'}$note: ${_formatRp(tx.amount)}',
           );
@@ -1439,8 +1514,9 @@ class CoachRepositoryImpl implements CoachRepository {
       buffer.writeln('• Hari Ini ($dateTodayStr): ${_formatRp(totalToday)}');
       if (todayTarget.isNotEmpty) {
         for (final tx in todayTarget) {
-          final note =
-              tx.note != null && tx.note!.isNotEmpty ? ' (${tx.note})' : '';
+          final note = tx.note != null && tx.note!.isNotEmpty
+              ? ' (${tx.note})'
+              : '';
           buffer.writeln(
             '  - ${tx.category?.name ?? 'Makan & Minum'}$note: ${_formatRp(tx.amount)}',
           );
@@ -1464,7 +1540,8 @@ class CoachRepositoryImpl implements CoachRepository {
       );
     }
 
-    final isYesterdayQuery = lower == 'kemarin' ||
+    final isYesterdayQuery =
+        lower == 'kemarin' ||
         lower == 'kemaren' ||
         lower == 'kalau kemarin' ||
         lower == 'kalo kemarin' ||
@@ -1482,15 +1559,16 @@ class CoachRepositoryImpl implements CoachRepository {
                 lower.contains('gmn')));
 
     if (isYesterdayQuery) {
-      final isFoodQuery = lower.contains('makan') ||
+      final isFoodQuery =
+          lower.contains('makan') ||
           lower.contains('minum') ||
           lower.contains('kuliner') ||
           previousHadFoodContext;
       final targetTxs = isFoodQuery
           ? yesterdayTxs.where(isFoodTx).toList()
           : yesterdayTxs
-              .where((tx) => tx.transactionType == TransactionType.expense)
-              .toList();
+                .where((tx) => tx.transactionType == TransactionType.expense)
+                .toList();
 
       final buffer = StringBuffer();
       final dateStr =
@@ -1504,8 +1582,9 @@ class CoachRepositoryImpl implements CoachRepository {
           if (yesterdayTxs.isNotEmpty) {
             buffer.writeln('\nTapi ada transaksi lain kemarin:');
             for (final tx in yesterdayTxs) {
-              final sign =
-                  tx.transactionType == TransactionType.income ? '+' : '-';
+              final sign = tx.transactionType == TransactionType.income
+                  ? '+'
+                  : '-';
               buffer.writeln(
                 '• ${tx.note ?? tx.category?.name ?? 'Transaksi'}: $sign${_formatRp(tx.amount)}',
               );
@@ -1528,8 +1607,9 @@ class CoachRepositoryImpl implements CoachRepository {
               : 'Rincian Pengeluaran Kemarin ($dateStr):',
         );
         for (final tx in targetTxs) {
-          final note =
-              tx.note != null && tx.note!.isNotEmpty ? ' (${tx.note})' : '';
+          final note = tx.note != null && tx.note!.isNotEmpty
+              ? ' (${tx.note})'
+              : '';
           buffer.writeln(
             '• ${tx.category?.name ?? 'Makan & Minum'}$note: ${_formatRp(tx.amount)}',
           );
@@ -1557,7 +1637,8 @@ class CoachRepositoryImpl implements CoachRepository {
       );
     }
 
-    final isTodayQuery = lower == 'hari ini' ||
+    final isTodayQuery =
+        lower == 'hari ini' ||
         lower == 'kalau hari ini' ||
         lower == 'kalo hari ini' ||
         lower.startsWith('kalau hari ini') ||
@@ -1576,15 +1657,16 @@ class CoachRepositoryImpl implements CoachRepository {
                 lower.contains('gmn')));
 
     if (isTodayQuery) {
-      final isFoodQuery = lower.contains('makan') ||
+      final isFoodQuery =
+          lower.contains('makan') ||
           lower.contains('minum') ||
           lower.contains('kuliner') ||
           previousHadFoodContext;
       final targetTxs = isFoodQuery
           ? todayTxs.where(isFoodTx).toList()
           : todayTxs
-              .where((tx) => tx.transactionType == TransactionType.expense)
-              .toList();
+                .where((tx) => tx.transactionType == TransactionType.expense)
+                .toList();
 
       final buffer = StringBuffer();
       final dateStr =
@@ -1604,8 +1686,9 @@ class CoachRepositoryImpl implements CoachRepository {
               : 'Catatan Pengeluaran Hari Ini ($dateStr):',
         );
         for (final tx in targetTxs) {
-          final note =
-              tx.note != null && tx.note!.isNotEmpty ? ' (${tx.note})' : '';
+          final note = tx.note != null && tx.note!.isNotEmpty
+              ? ' (${tx.note})'
+              : '';
           buffer.writeln(
             '• ${tx.category?.name ?? 'Makan & Minum'}$note: ${_formatRp(tx.amount)}',
           );
@@ -1630,14 +1713,16 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // --- Intent B.2: Longevity & Budget Pacing Projection ---
     // Example: "budget makan saya sampai tanggal berapa", "tahan berapa hari", "awet berapa lama"
-    final isLongevityQuery = lower.contains('tahan berapa') ||
+    final isLongevityQuery =
+        lower.contains('tahan berapa') ||
         lower.contains('sampai tanggal') ||
         lower.contains('sampai kapan') ||
         lower.contains('awet berapa') ||
         lower.contains('habis tanggal') ||
         lower.contains('habis kapan') ||
         (lower.contains('budget') &&
-            (lower.contains('berapa hari') || lower.contains('sampai kapan'))) ||
+            (lower.contains('berapa hari') ||
+                lower.contains('sampai kapan'))) ||
         (lower.contains('jatah') &&
             (lower.contains('berapa hari') || lower.contains('sampai kapan')));
 
@@ -1652,9 +1737,7 @@ class CoachRepositoryImpl implements CoachRepository {
         }
       }
       targetBudget ??= budgets
-          .where(
-            (b) => (b.categoryName ?? '').toLowerCase().contains('makan'),
-          )
+          .where((b) => (b.categoryName ?? '').toLowerCase().contains('makan'))
           .firstOrNull;
       targetBudget ??= budgets.isNotEmpty ? budgets.first : null;
 
@@ -1668,8 +1751,9 @@ class CoachRepositoryImpl implements CoachRepository {
         final dailyAvg = spent > 0 ? (spent / daysElapsed) : 0.0;
         final effectiveDaily = dailyAvg > 0 ? dailyAvg : (limit / 30);
 
-        final daysLeft =
-            effectiveDaily > 0 ? (remaining / effectiveDaily).round() : 30;
+        final daysLeft = effectiveDaily > 0
+            ? (remaining / effectiveDaily).round()
+            : 30;
         final projectedDate = now.add(Duration(days: daysLeft));
         final projectedStr =
             '${projectedDate.day} ${_monthName(projectedDate.month)} ${projectedDate.year}';
@@ -1701,9 +1785,7 @@ class CoachRepositoryImpl implements CoachRepository {
           buffer.writeln(
             'Dengan kecepatan belanja saat ini (~${_formatRp(effectiveDaily)}/hari), sisa jatah lu diproyeksikan bakal tahan sekitar $daysLeft hari ke depan.',
           );
-          buffer.writeln(
-            'Estimasi aman sampai sekitar tanggal $projectedStr.',
-          );
+          buffer.writeln('Estimasi aman sampai sekitar tanggal $projectedStr.');
         }
 
         return (
@@ -1872,7 +1954,8 @@ class CoachRepositoryImpl implements CoachRepository {
       if (latestReview != null) {
         final period =
             '${latestReview['period_start']} s/d ${latestReview['period_end']}';
-        final narrative = latestReview['narrative']?.toString() ??
+        final narrative =
+            latestReview['narrative']?.toString() ??
             'Evaluasi bulanan sudah tercatat.';
         return (
           reply:

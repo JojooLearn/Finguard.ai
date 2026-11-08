@@ -1043,8 +1043,6 @@ ATURAN WAJIB KLASIFIKASI INTENT:
            - Berikan saran pesanan rasional ritel (cukup pesan 10 - 20 lot agar dana tidak tertahan sia-sia).
         7) **Rekomendasi Alokasi Modal Sesuai Uang Dingin Pengguna**: Hubungkan langsung dengan kondisi uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}) dan saldo kas pengguna di FinGuard!
 
-      * WAJIB AKHIRI SETIAP ANALISIS SAHAM/IPO DENGAN DISCLAIMER RISIKO INVESTASI: "Ingat ya, ini murni analisis data bursa, order book, dan indikator teknikal/prospektus, bukan jaminan cuan pasti. Keputusan dan risiko investasi 100% ada di tangan lu sendiri. Tetap disiplin jaga money management dan jangan fomo!"
-
 10. PERCAKAPAN UMUM, SAPAAN, ATAU CHAT BEBAS (NATURAL CONVERSATION):
    Contoh: "hai", "halo", "pagi", "lagi apa?", "siapa kamu?", "tips hemat dong", "ceritain cara nabung", dsb.
    - Bersikaplah luwes, akrab, dan responsif selayaknya ngobrol santai di Gemini.

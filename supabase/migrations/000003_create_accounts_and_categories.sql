@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS public.categories (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Unique index to prevent duplicate system categories
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_unique_system_name_type
+ON public.categories (name, transaction_type)
+WHERE is_system = true;
+
 -- Seed system categories (is_system = true, user_id = null)
 INSERT INTO public.categories (name, transaction_type, allocation_type, icon_key, color_hex, is_system) VALUES
 ('Makan & Minum', 'expense', 'needs', 'utensils', '#E0A100', true),
@@ -43,4 +48,4 @@ INSERT INTO public.categories (name, transaction_type, allocation_type, icon_key
 ('Penjualan & Usaha', 'income', 'other', 'store', '#3B82F6', true),
 ('Investasi & Dividen', 'income', 'savings_debt', 'trending-up', '#10B981', true),
 ('Lainnya', 'expense', 'other', 'more-horizontal', '#64748B', true)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, transaction_type) WHERE is_system = true DO NOTHING;

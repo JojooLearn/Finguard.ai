@@ -205,7 +205,7 @@ void main() {
         final state = coachCubit.state as CoachLoaded;
         final aiReply = state.messages.last;
         expect(aiReply.isUser, isFalse);
-        expect(aiReply.content, contains('Gaya elit ekonomi menjerit blok!'));
+        expect(aiReply.content, contains('Gaya lu elit tapi dompet melintir'));
       },
     );
 
@@ -245,7 +245,7 @@ void main() {
         final aiReply = state.messages.last;
         expect(aiReply.isUser, isFalse);
         expect(aiReply.hasAudio, isTrue);
-        expect(aiReply.content, contains('lambung lapis baja njir!'));
+        expect(aiReply.content, contains('lambung lu karet'));
         expect(aiReply.effectiveAudioBase64, isNotNull);
       },
     );
