@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../../../app/di/injection.dart';
 import '../../../../app/theme/app_colors.dart';
@@ -1156,29 +1157,332 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
             ],
           ),
           if (b.brokerSummary != null && b.brokerSummary!.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceFieldFill,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusInnerElement),
-              ),
-              child: Text(
-                b.brokerSummary!,
-                style: AppTypography.captionText.copyWith(
-                  fontSize: 12,
-                  color: AppColors.textPrimary,
-                  height: 1.4,
-                ),
-              ),
-            ),
+            const SizedBox(height: 14),
+            _buildStructuredBrokerSummary(b.brokerSummary!),
           ],
         ],
       ),
     );
   }
 
+  Widget _buildStructuredBrokerSummary(String rawSummary) {
+    final lines = rawSummary
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+
+    String? statusBandar;
+    String? topBuyers;
+    String? topSellers;
+    String? brokerChar;
+    String? newsRef;
+
+    for (final line in lines) {
+      final lower = line.toLowerCase();
+      if (lower.contains('status bandarmologi:')) {
+        statusBandar = line.replaceFirst(
+          RegExp(r'^[-*•·\s]*status bandarmologi:\s*', caseSensitive: false),
+          '',
+        );
+      } else if (lower.contains('top 3 broker net buy')) {
+        topBuyers = line.replaceFirst(
+          RegExp(r'^[-*•·\s]*top 3 broker net buy.*:\s*', caseSensitive: false),
+          '',
+        );
+      } else if (lower.contains('top 3 broker net sell')) {
+        topSellers = line.replaceFirst(
+          RegExp(r'^[-*•·\s]*top 3 broker net sell.*:\s*', caseSensitive: false),
+          '',
+        );
+      } else if (lower.contains('karakteristik broker')) {
+        brokerChar = line.replaceFirst(
+          RegExp(r'^[-*•·\s]*karakteristik broker.*:\s*', caseSensitive: false),
+          '',
+        );
+      } else if (lower.contains('referensi berita')) {
+        newsRef = line.replaceFirst(
+          RegExp(r'^[-*•·\s]*referensi berita.*:\s*', caseSensitive: false),
+          '',
+        );
+      }
+    }
+
+    // Fallback if unstructured
+    if (statusBandar == null && topBuyers == null && topSellers == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceFieldFill,
+          borderRadius: BorderRadius.circular(AppSpacing.radiusInnerElement),
+        ),
+        child: _buildSpanText(rawSummary),
+      );
+    }
+
+    final List<Widget> items = [];
+
+    // 1. Status Bandarmologi Pill
+    if (statusBandar != null) {
+      final isAcc = statusBandar.toUpperCase().contains('AKUMULASI');
+      final badgeColor = isAcc ? AppColors.incomeGreen : AppColors.expenseRed;
+      final badgeBg = isAcc ? AppColors.incomeGreenBg : AppColors.expenseRedBg;
+
+      items.add(
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: badgeBg,
+            borderRadius: BorderRadius.circular(AppSpacing.radiusInnerElement),
+            border: Border.all(
+              color: badgeColor.withValues(alpha: 0.25),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isAcc
+                        ? PhosphorIcons.trendUp(PhosphorIconsStyle.bold)
+                        : PhosphorIcons.trendDown(PhosphorIconsStyle.bold),
+                    size: 16,
+                    color: badgeColor,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    isAcc
+                        ? 'Status: AKUMULASI TERUKUR'
+                        : 'Status: TEKANAN DISTRIBUSI',
+                    style: GoogleFonts.urbanist(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: badgeColor,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                statusBandar,
+                style: GoogleFonts.urbanist(
+                  fontSize: 12,
+                  color: AppColors.textPrimary,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 2. Top 3 Buyers & Sellers
+    if (topBuyers != null || topSellers != null) {
+      items.add(const SizedBox(height: 10));
+      if (topBuyers != null) {
+        items.add(
+          _buildBrokerRowCard(
+            title: 'Top 3 Net Buy (Akumulasi)',
+            content: topBuyers,
+            icon: PhosphorIcons.arrowCircleUp(PhosphorIconsStyle.fill),
+            color: AppColors.incomeGreen,
+            bgColor: AppColors.incomeGreenBg.withValues(alpha: 0.6),
+          ),
+        );
+      }
+      if (topSellers != null) {
+        items.add(const SizedBox(height: 8));
+        items.add(
+          _buildBrokerRowCard(
+            title: 'Top 3 Net Sell (Distribusi)',
+            content: topSellers,
+            icon: PhosphorIcons.arrowCircleDown(PhosphorIconsStyle.fill),
+            color: AppColors.expenseRed,
+            bgColor: AppColors.expenseRedBg.withValues(alpha: 0.6),
+          ),
+        );
+      }
+    }
+
+    // 3. Karakteristik Broker & Pasar
+    if (brokerChar != null && brokerChar.isNotEmpty) {
+      items.add(const SizedBox(height: 10));
+      items.add(
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceFieldFill,
+            borderRadius: BorderRadius.circular(AppSpacing.radiusInnerElement),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    PhosphorIcons.usersFour(PhosphorIconsStyle.bold),
+                    size: 15,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Karakteristik Broker & Pasar',
+                    style: GoogleFonts.urbanist(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primaryDark,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Text(
+                brokerChar,
+                style: GoogleFonts.urbanist(
+                  fontSize: 12,
+                  color: AppColors.textPrimary,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 4. Referensi Berita Aliran Dana Terkini (Dibersihkan dari teks gantung/terpotong)
+    if (newsRef != null && newsRef.isNotEmpty) {
+      String cleanedNews = newsRef.replaceAll('"', '').trim();
+      cleanedNews = cleanedNews.replaceAll(RegExp(r'\s+[a-zA-Z]\s*\.\.\.$'), '...');
+      cleanedNews = cleanedNews.replaceAll(RegExp(r'\.\.\.+$'), '...');
+      if (!cleanedNews.endsWith('.')) cleanedNews += '...';
+
+      items.add(const SizedBox(height: 10));
+      items.add(
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(AppSpacing.radiusInnerElement),
+            border: Border.all(color: AppColors.neutral200, width: 0.8),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  PhosphorIcons.newspaper(PhosphorIconsStyle.fill),
+                  size: 15,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sentimen Berita Terkait',
+                      style: GoogleFonts.urbanist(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      cleanedNews,
+                      style: GoogleFonts.urbanist(
+                        fontSize: 11.5,
+                        fontStyle: FontStyle.italic,
+                        color: AppColors.textSecondary,
+                        height: 1.38,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: items,
+    );
+  }
+
+  Widget _buildBrokerRowCard({
+    required String title,
+    required String content,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusInnerElement),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: GoogleFonts.urbanist(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            content,
+            style: GoogleFonts.urbanist(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMarkdownReportCard(StockAnalysisResult res) {
+    // Hilangkan redudansi disclaimer jika terdapat di akhir markdown
+    String cleanMarkdown = res.markdownAnalysis;
+    cleanMarkdown = cleanMarkdown
+        .replaceAll(
+          RegExp(
+            r'((\r?\n)*)#{0,4}\s*(6\.|[0-9]+\.)?\s*⚠️?\s*Disclaimer.*$',
+            caseSensitive: false,
+            dotAll: true,
+          ),
+          '',
+        )
+        .trim();
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1207,7 +1511,7 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
                 icon: const Icon(Icons.copy_rounded, size: 18),
                 color: AppColors.textPlaceholder,
                 onPressed: () {
-                  Clipboard.setData(ClipboardData(text: res.markdownAnalysis));
+                  Clipboard.setData(ClipboardData(text: cleanMarkdown));
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Analisis disalin ke clipboard!'),
@@ -1219,7 +1523,7 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
             ],
           ),
           const Divider(height: 20),
-          _buildRichMarkdownText(res.markdownAnalysis),
+          _buildRichMarkdownText(cleanMarkdown),
         ],
       ),
     );
@@ -1229,53 +1533,233 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
     final lines = text.split('\n');
     final List<Widget> widgets = [];
 
-    for (final line in lines) {
-      final trimmed = line.trim();
+    bool inRadarBox = false;
+    final List<Widget> radarBoxChildren = [];
+
+    void flushRadarBox() {
+      if (radarBoxChildren.isNotEmpty) {
+        widgets.add(
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(top: 6, bottom: 12),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(AppSpacing.radiusInnerElement),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.22),
+                width: 1.2,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: List.from(radarBoxChildren),
+            ),
+          ),
+        );
+        radarBoxChildren.clear();
+      }
+      inRadarBox = false;
+    }
+
+    for (int i = 0; i < lines.length; i++) {
+      final trimmed = lines[i].trim();
       if (trimmed.isEmpty) {
-        widgets.add(const SizedBox(height: 6));
+        if (!inRadarBox) {
+          widgets.add(const SizedBox(height: 6));
+        }
         continue;
       }
 
-      if (trimmed.startsWith('# ') || trimmed.startsWith('## ') || trimmed.startsWith('### ')) {
-        final cleanHeader = trimmed.replaceAll(RegExp(r'^#+\s*'), '');
-        widgets.add(
-          Padding(
-            padding: const EdgeInsets.only(top: 10, bottom: 4),
-            child: Text(
-              cleanHeader,
-              style: AppTypography.itemTitle.copyWith(
-                fontSize: 15,
+      // Check dividers
+      if (RegExp(r'^[-_—━*]{3,}$').hasMatch(trimmed)) {
+        if (inRadarBox) {
+          radarBoxChildren.add(
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Divider(
+                color: AppColors.neutral200.withValues(alpha: 0.8),
+                height: 1,
+              ),
+            ),
+          );
+        } else {
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Divider(
+                color: AppColors.neutral200.withValues(alpha: 0.8),
+                height: 1,
+              ),
+            ),
+          );
+        }
+        continue;
+      }
+
+      // Check Radar Box starter
+      if (trimmed.contains('🎯') ||
+          trimmed.toUpperCase().contains('RANGKUMAN RADAR')) {
+        flushRadarBox();
+        inRadarBox = true;
+        radarBoxChildren.add(
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: _buildSpanText(
+              trimmed,
+              baseStyle: GoogleFonts.urbanist(
+                color: AppColors.primaryDark,
+                fontSize: 13,
                 fontWeight: FontWeight.w800,
-                color: AppColors.primary,
+                letterSpacing: 0.2,
               ),
             ),
           ),
         );
-      } else if (trimmed.startsWith('• ') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        final content = trimmed.substring(2);
+        continue;
+      }
+
+      // Check numbered section headers: e.g. "1. 📊 Valuasi..." or "2. 📈 Analisis..."
+      final numHeaderMatch = RegExp(r'^(\d+\.)\s+(.*)$').firstMatch(trimmed);
+      if (numHeaderMatch != null &&
+          (trimmed.contains(RegExp(r'[📊📈🏦📰💼⚠️🚀]')) ||
+              numHeaderMatch.group(2)!.length > 5)) {
+        flushRadarBox();
+        final numPrefix = numHeaderMatch.group(1)!;
+        final title = numHeaderMatch.group(2)!;
         widgets.add(
           Padding(
-            padding: const EdgeInsets.only(left: 6, bottom: 4),
+            padding: const EdgeInsets.only(top: 14, bottom: 6),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Text('• ', style: TextStyle(fontWeight: FontWeight.w900)),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    numPrefix.replaceAll('.', ''),
+                    style: GoogleFonts.urbanist(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: _buildSpanText(content),
+                  child: _buildSpanText(
+                    title,
+                    baseStyle: GoogleFonts.urbanist(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
         );
-      } else {
+        continue;
+      }
+
+      // Check standard markdown headers: "# ", "## ", "### "
+      if (trimmed.startsWith('# ') ||
+          trimmed.startsWith('## ') ||
+          trimmed.startsWith('### ')) {
+        flushRadarBox();
+        final cleanHeader = trimmed.replaceAll(RegExp(r'^#+\s*'), '');
         widgets.add(
           Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: _buildSpanText(trimmed),
+            padding: const EdgeInsets.only(top: 14, bottom: 6),
+            child: Text(
+              cleanHeader,
+              style: GoogleFonts.urbanist(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primaryDark,
+              ),
+            ),
           ),
         );
+        continue;
       }
+
+      // Check bullet items (matches "• ", "- ", "* ", "· ", "– ")
+      final bulletMatch =
+          RegExp(r'^[-*•·–\u00B7]\s+(.*)$').firstMatch(trimmed);
+      if (bulletMatch != null) {
+        final content = bulletMatch.group(1)!;
+        final targetList = inRadarBox ? radarBoxChildren : widgets;
+        targetList.add(
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 5),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    '•',
+                    style: GoogleFonts.urbanist(
+                      color: inRadarBox
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSpanText(
+                    content,
+                    baseStyle: GoogleFonts.urbanist(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      height: 1.48,
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        continue;
+      }
+
+      // Normal paragraph
+      final targetList = inRadarBox ? radarBoxChildren : widgets;
+      targetList.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: _buildSpanText(
+            trimmed,
+            baseStyle: GoogleFonts.urbanist(
+              color: AppColors.textPrimary,
+              fontSize: 13,
+              height: 1.48,
+              letterSpacing: 0.1,
+            ),
+          ),
+        ),
+      );
     }
+
+    flushRadarBox();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1283,16 +1767,17 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
     );
   }
 
-  Widget _buildSpanText(String raw) {
-    if (!raw.contains('**')) {
-      return Text(
-        raw,
-        style: AppTypography.bodyText.copyWith(
+  Widget _buildSpanText(String raw, {TextStyle? baseStyle}) {
+    final style = baseStyle ??
+        GoogleFonts.urbanist(
           fontSize: 13,
+          fontWeight: FontWeight.w400,
           color: AppColors.textPrimary,
-          height: 1.45,
-        ),
-      );
+          height: 1.48,
+        );
+
+    if (!raw.contains('**')) {
+      return Text(raw, style: style);
     }
 
     final List<TextSpan> spans = [];
@@ -1300,15 +1785,41 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
     for (int i = 0; i < parts.length; i++) {
       if (parts[i].isEmpty) continue;
       final isBold = i % 2 == 1;
+
+      Color? tagColor;
+      if (isBold) {
+        final upper = parts[i].toUpperCase();
+        if (upper.contains('BUY') ||
+            upper.contains('ARA') ||
+            upper.contains('AKUMULASI') ||
+            upper.contains('UNTUNG')) {
+          tagColor = const Color(0xFF16A34A);
+        } else if (upper.contains('HIGH RISK') ||
+            upper.contains('SELL') ||
+            upper.contains('ARB') ||
+            upper.contains('AVOID') ||
+            upper.contains('CUT LOSS')) {
+          tagColor = const Color(0xFFDC2626);
+        } else if (upper.contains('WAIT') ||
+            upper.contains('HOLD') ||
+            upper.contains('MEDIUM RISK') ||
+            upper.contains('KONSOLIDASI')) {
+          tagColor = const Color(0xFFD97706);
+        }
+      }
+
       spans.add(
         TextSpan(
           text: parts[i],
-          style: TextStyle(
-            fontWeight: isBold ? FontWeight.w800 : FontWeight.w400,
-            color: isBold ? AppColors.textPrimary : AppColors.textSecondary,
-            fontSize: 13,
-            height: 1.45,
-          ),
+          style: isBold
+              ? style.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: tagColor ?? AppColors.textPrimary,
+                )
+              : style.copyWith(
+                  fontWeight: FontWeight.w400,
+                  color: AppColors.textSecondary,
+                ),
         ),
       );
     }

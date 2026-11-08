@@ -150,7 +150,7 @@ TUGAS ANDA:
    - 🏦 **Bandarmologi & Analisis Order Book (HAKA vs HAKI)**
    - 📰 **Sentimen Pasar, Isu Sektoral & Prospektus e-IPO** (jika relevan)
    - 💼 **Rekomendasi Alokasi Saldo FinGuard & Manajemen Risiko**
-   - ⚠️ **Disclaimer Resmi FinGuard** (Ingatkan bahwa risiko investasi sepenuhnya di tangan pengguna).`;
+(PENTING: Jangan membuat nomor 6 atau bagian disclaimer di markdown_analysis, karena disclaimer resmi FinGuard sudah otomatis disematkan di footer aplikasi).`;
 
     const userMessageContent = `Tolong lakukan analisis komprehensif institusi untuk saham ${cleanTicker} berdasarkan data teknikal, bandarmologi, berita, dan kapasitas saldo saya.`;
 

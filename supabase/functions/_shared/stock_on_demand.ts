@@ -608,8 +608,12 @@ function buildOrderBookBrokerAndVerdict(
     benchmark?.brokerCharacters ||
     "Perhatikan pertarungan antara aliran Smart Money / Institusi (AK - UBS, ZP - Maybank, BK - J.P. Morgan, CC - Mandiri) dan Market Maker (MG - Semesta Indovest, YU - CGS, HP - Henan Putihrai) melawan kerumunan Broker Ritel (YP - Mirae, PD - Indo Premier, XC - Ajaib, XL - Stockbit).";
 
+  let cleanNews = brokerNews.length > 0 ? brokerNews[0] : "";
+  if (cleanNews) {
+    cleanNews = cleanNews.replace(/\s+[a-zA-Z]\s*\.\.\.$/, "...").trim();
+  }
   const brokerNewsText =
-    brokerNews.length > 0 ? `\n  - Referensi Berita Aliran Dana Terkini: "${brokerNews[0]}"` : "";
+    cleanNews ? `\n  - Referensi Berita Aliran Dana Terkini: "${cleanNews}"` : "";
 
   const brokerProfileSummary =
     `Ringkasan Broker Summary Terakhir (Tanggal Bursa: ${lastTradeDate} | Harga Penutupan: Rp${price.toLocaleString("id-ID")} | VWAP: Rp${vwapPrice.toLocaleString("id-ID")}):\n` +
