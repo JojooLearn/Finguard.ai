@@ -55,7 +55,7 @@ dependencies:
   url_launcher: ^6.3.2
   onesignal_flutter: ^5.7.2
   speech_to_text: ^7.4.0
-  permission_handler: ^13.0.2
+  permission_handler: 11.3.1
   just_audio: ^0.10.6
 
 

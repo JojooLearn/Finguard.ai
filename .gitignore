@@ -46,6 +46,7 @@ docs/
 /coverage/
 
 # Android
+android/build/
 android/local.properties
 android/.gradle/
 .gradle/
