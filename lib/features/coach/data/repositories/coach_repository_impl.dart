@@ -366,6 +366,7 @@ class CoachRepositoryImpl implements CoachRepository {
     String? receiptPath,
     String? receiptBase64,
     bool requestAudio = false,
+    int? strictnessLevel,
   }) async {
     final effectiveRequestId = clientRequestId ?? const Uuid().v4();
     final user = client.auth.currentUser;
@@ -398,7 +399,6 @@ class CoachRepositoryImpl implements CoachRepository {
     ChatMessageStatus messageStatus = ChatMessageStatus.completed;
 
     // 2. Try remote Edge Function if user is authenticated (Fast path: no redundant sequential pre-queries, 20s timeout)
-    int strictnessLevel = 3;
     bool edgeFunctionPersisted = false;
     if (user != null) {
       try {
@@ -419,7 +419,7 @@ class CoachRepositoryImpl implements CoachRepository {
           'message': message,
           'conversation_id': effectiveConvId,
           'client_request_id': effectiveRequestId,
-          'strictness_level': strictnessLevel,
+          'strictness_level': ?strictnessLevel,
           'client_date': clientDate,
           'request_audio': requestAudio,
           'receipt_path': ?receiptPath,
@@ -481,7 +481,10 @@ class CoachRepositoryImpl implements CoachRepository {
         coachReply =
             'Foto nota belum dapat diproses oleh AI Vision saat ini. Pastikan foto struk terlihat jelas, tidak buram, dan memuat angka total belanja, lalu silakan coba foto ulang.';
       } else {
-        final contextualResult = await _generateContextualConsultation(message);
+        final contextualResult = await _generateContextualConsultation(
+          message,
+          strictnessLevelOverride: strictnessLevel,
+        );
         coachReply = contextualResult.reply;
         structuredData = contextualResult.extractedTx;
         needsClarification = contextualResult.needsClarification;
@@ -651,7 +654,10 @@ class CoachRepositoryImpl implements CoachRepository {
       List<String> missingFields,
     })
   >
-  _generateContextualConsultation(String text) async {
+  _generateContextualConsultation(
+    String text, {
+    int? strictnessLevelOverride,
+  }) async {
     final lower = text.toLowerCase().trim();
 
     // 1. Fetch live database context
@@ -739,6 +745,10 @@ class CoachRepositoryImpl implements CoachRepository {
           riskProfile = fp['risk_profile']?.toString() ?? 'moderate';
         }
       } catch (_) {}
+
+      if (strictnessLevelOverride != null) {
+        strictnessLevel = strictnessLevelOverride;
+      }
 
       try {
         final gcRes = await client

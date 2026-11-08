@@ -599,7 +599,11 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
       onDemandStockPromptSection = sections.join("\n\n---\n\n");
     }
 
-    const strictness = clientStrictness || finContext.strictnessLevel || 3;
+    // User's strictness level from financial_profiles (DB) is the primary single source of truth.
+    // Fall back to clientStrictness if available, or default to 3.
+    const strictness = (finContext.strictnessLevel != null && Number(finContext.strictnessLevel) > 0)
+      ? Number(finContext.strictnessLevel)
+      : (clientStrictness ? Number(clientStrictness) : 3);
 
     // Strictness Persona
     let personaGuideline = "";

@@ -12,6 +12,7 @@ import 'package:finguard/features/coach/presentation/cubit/coach_state.dart';
 class FakeVoiceCoachRepository implements CoachRepository {
   bool? lastRequestAudioFlag;
   String? lastSentMessage;
+  int? lastStrictnessLevel;
 
   @override
   Future<Result<List<ChatMessageEntity>>> getChatHistory({
@@ -53,14 +54,27 @@ class FakeVoiceCoachRepository implements CoachRepository {
     String? receiptPath,
     String? receiptBase64,
     bool requestAudio = false,
+    int? strictnessLevel,
   }) async {
     lastSentMessage = message;
     lastRequestAudioFlag = requestAudio;
+    lastStrictnessLevel = strictnessLevel;
 
     final isExpenseCommand = message.toLowerCase().contains('catat makan');
-    final replyText = isExpenseCommand
-        ? 'Siap! Draf pengeluaran makan Rp20.000 sudah gue siapkan di bawah.'
-        : 'Halo juga! Ada yang bisa Coach bantu hari ini?';
+    String replyText;
+    if (strictnessLevel != null && strictnessLevel >= 4) {
+      replyText = isExpenseCommand
+          ? 'Nafsu jajan lu kayak lambung lapis baja njir! Draf makan Rp20.000 udah disiapin, buruan konfirmasi sebelum dompet lu nangis!'
+          : 'Gaya elit ekonomi menjerit njir! Mau nanya apaan lu? Dompet lu lagi sekarat tuh!';
+    } else if (strictnessLevel != null && strictnessLevel <= 2) {
+      replyText = isExpenseCommand
+          ? 'Wah semangat ya! Pengeluaran makan Rp20.000 sudah disiapkan drafnya. Cek dulu yuk sebelum disimpan.'
+          : 'Halo! Senang bisa nemenin kamu atur keuangan hari ini.';
+    } else {
+      replyText = isExpenseCommand
+          ? 'Siap! Draf pengeluaran makan Rp20.000 sudah gue siapkan di bawah.'
+          : 'Halo juga! Ada yang bisa Coach bantu hari ini?';
+    }
 
     final audioPayload = requestAudio
         ? VoiceIoService.generateSynthesizedCoachVoiceWavBase64(replyText)
@@ -174,6 +188,65 @@ void main() {
         expect(response.contentType, equals('audio/wav'));
         final streamedChunk = await response.stream.first;
         expect(streamedChunk.length, equals(44));
+      },
+    );
+    test(
+      'AC-5 (Persona Roast / Toxic Level 5): Strictness Level 5 activates Savage Roast persona and routes correctly',
+      () async {
+        await coachCubit.sendMessage(
+          'Mau beli iPhone 16 Pro',
+          requestAudio: false,
+          strictnessLevel: 5,
+        );
+
+        expect(fakeRepository.lastSentMessage, equals('Mau beli iPhone 16 Pro'));
+        expect(fakeRepository.lastStrictnessLevel, equals(5));
+
+        final state = coachCubit.state as CoachLoaded;
+        final aiReply = state.messages.last;
+        expect(aiReply.isUser, isFalse);
+        expect(aiReply.content, contains('Gaya elit ekonomi menjerit njir!'));
+      },
+    );
+
+    test(
+      'AC-6 (Persona Suportif Level 2): Strictness Level 2 activates Supportive persona and routes correctly',
+      () async {
+        await coachCubit.sendMessage(
+          'Catat makan 20 ribu',
+          requestAudio: false,
+          strictnessLevel: 2,
+        );
+
+        expect(fakeRepository.lastSentMessage, equals('Catat makan 20 ribu'));
+        expect(fakeRepository.lastStrictnessLevel, equals(2));
+
+        final state = coachCubit.state as CoachLoaded;
+        final aiReply = state.messages.last;
+        expect(aiReply.isUser, isFalse);
+        expect(aiReply.content, contains('Wah semangat ya!'));
+      },
+    );
+
+    test(
+      'AC-7 (Combined Voice-In + Roast Level 5): Voice STT input with Roast persona produces Savage text AND audio',
+      () async {
+        await coachCubit.sendMessage(
+          'Catat makan 20 ribu',
+          requestAudio: true,
+          strictnessLevel: 5,
+        );
+
+        expect(fakeRepository.lastSentMessage, equals('Catat makan 20 ribu'));
+        expect(fakeRepository.lastRequestAudioFlag, isTrue);
+        expect(fakeRepository.lastStrictnessLevel, equals(5));
+
+        final state = coachCubit.state as CoachLoaded;
+        final aiReply = state.messages.last;
+        expect(aiReply.isUser, isFalse);
+        expect(aiReply.hasAudio, isTrue);
+        expect(aiReply.content, contains('lambung lapis baja njir!'));
+        expect(aiReply.effectiveAudioBase64, isNotNull);
       },
     );
   });

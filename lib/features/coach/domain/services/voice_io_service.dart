@@ -92,7 +92,7 @@ class VoiceIoService {
     }
   }
 
-  /// Starts on-device Speech-to-Text listening in Indonesian (`id_ID`).
+  /// Starts on-device Speech-to-Text listening in Indonesian (`id_ID`) or device system locale.
   Future<bool> startListening({
     required void Function(String recognizedWords, bool isFinalResult) onResult,
     void Function(String status)? onStatus,
@@ -100,18 +100,39 @@ class VoiceIoService {
   }) async {
     final ready = await ensurePermissionsAndInitialize(
       onStatus: onStatus,
-      onError: onError,
+      onError: (errMsg) {
+        // Filter out benign pauses/silence timeouts so they do not crash or show red errors
+        if (errMsg == 'error_no_match' || errMsg == 'error_speech_timeout') {
+          return;
+        }
+        onError?.call(errMsg);
+      },
     );
     if (!ready) return false;
 
-    // ignore: deprecated_member_use
+    String? preferredLocale;
+    try {
+      final locales = await _speechToText.locales();
+      final hasIndonesian =
+          locales.any((l) => l.localeId.toLowerCase().startsWith('id'));
+      if (hasIndonesian) {
+        preferredLocale = 'id_ID';
+      } else {
+        final sys = await _speechToText.systemLocale();
+        if (sys != null && sys.localeId.isNotEmpty) {
+          preferredLocale = sys.localeId;
+        }
+      }
+    } catch (_) {}
+
     await _speechToText.listen(
-      // ignore: deprecated_member_use
-      localeId: 'id_ID',
       listenOptions: SpeechListenOptions(
+        localeId: preferredLocale ?? 'id_ID',
         listenMode: ListenMode.dictation,
         partialResults: true,
-        cancelOnError: true,
+        cancelOnError: false, // Do not abort immediately on silence/pause
+        pauseFor: const Duration(seconds: 4),
+        listenFor: const Duration(seconds: 30),
       ),
       onResult: (SpeechRecognitionResult result) {
         onResult(result.recognizedWords, result.finalResult);

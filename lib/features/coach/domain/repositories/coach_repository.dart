@@ -18,6 +18,7 @@ abstract class CoachRepository {
     String? receiptPath,
     String? receiptBase64,
     bool requestAudio = false,
+    int? strictnessLevel,
   });
 
   Future<void> updateMessageMetadata({

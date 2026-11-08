@@ -185,19 +185,47 @@ class _CoachPageState extends State<CoachPage> {
         if (!mounted) return;
         if (status == 'done' || status == 'notListening') {
           setState(() => _isListeningVoice = false);
+          // If speech finished with recognized text, send automatically!
+          final currentText = _textController.text.trim();
+          if (currentText.isNotEmpty && _isVoiceOrigin) {
+            _sendMessage(null, true);
+          }
         }
       },
       onError: (errMsg) {
         if (!mounted) return;
+        // If words were already recognized, do not display an error; finalize and send
+        if (_textController.text.trim().isNotEmpty) {
+          setState(() => _isListeningVoice = false);
+          _sendMessage(null, true);
+          return;
+        }
+
         setState(() => _isListeningVoice = false);
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(errMsg),
-              backgroundColor: AppColors.danger,
-            ),
-          );
+        // Translate or soften common speech engine timeout/silence messages
+        if (errMsg.contains('no_match') || errMsg.contains('timeout')) {
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Suara tidak terdengar. Ketuk mikrofon dan bicara lebih dekat ya!',
+                ),
+                backgroundColor: AppColors.primary,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+        } else {
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(
+              SnackBar(
+                content: Text('Mikrofon: $errMsg'),
+                backgroundColor: AppColors.danger,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+        }
       },
     );
 
@@ -478,9 +506,18 @@ class _CoachPageState extends State<CoachPage> {
       );
     } else {
       if (!mounted) return;
+      int? currentStrictness;
+      try {
+        final profileState = context.read<ProfileCubit>().state;
+        if (profileState is ProfileLoaded) {
+          currentStrictness = profileState.profile.strictnessLevel;
+        }
+      } catch (_) {}
+
       context.read<CoachCubit>().sendMessage(
         text,
         requestAudio: shouldRequestAudio,
+        strictnessLevel: currentStrictness,
       );
     }
     _scrollToBottom();

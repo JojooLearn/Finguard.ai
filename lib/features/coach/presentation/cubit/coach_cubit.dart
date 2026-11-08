@@ -145,6 +145,7 @@ class CoachCubit extends Cubit<CoachState> {
     String text, {
     String? conversationId,
     bool requestAudio = false,
+    int? strictnessLevel,
   }) async {
     if (text.trim().isEmpty) return;
 
@@ -176,6 +177,7 @@ class CoachCubit extends Cubit<CoachState> {
       conversationId: activeConvId,
       clientRequestId: clientRequestId,
       requestAudio: requestAudio,
+      strictnessLevel: strictnessLevel,
     );
 
     result.fold(
