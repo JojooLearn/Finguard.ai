@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:lottie/lottie.dart';
@@ -22,6 +23,7 @@ import '../../../profile/presentation/cubit/profile_cubit.dart';
 import '../../../profile/presentation/cubit/profile_state.dart';
 import '../cubit/coach_cubit.dart';
 import '../cubit/coach_state.dart';
+import '../widgets/voice_listening_modal.dart';
 
 class CoachPage extends StatefulWidget {
   final bool? isKeyboardOpen;
@@ -145,93 +147,14 @@ class _CoachPageState extends State<CoachPage> {
     }
   }
 
-  Future<void> _toggleVoiceInput() async {
-    if (_isListeningVoice) {
-      await _voiceIoService.stopListening();
-      if (mounted) {
-        setState(() => _isListeningVoice = false);
-      }
-      final currentText = _textController.text.trim();
-      if (currentText.isNotEmpty) {
-        await _sendMessage(null, true);
-      }
-      return;
-    }
-
-    setState(() {
-      _isListeningVoice = true;
-      _isVoiceOrigin = true;
-    });
-
-    final started = await _voiceIoService.startListening(
-      onResult: (recognizedWords, isFinalResult) {
-        if (!mounted) return;
-        _isUpdatingTextFromStt = true;
-        _textController.text = recognizedWords;
-        _textController.selection = TextSelection.fromPosition(
-          TextPosition(offset: _textController.text.length),
-        );
-        _isVoiceOrigin = true;
-        _hasInputText = recognizedWords.trim().isNotEmpty;
-        _isUpdatingTextFromStt = false;
-        setState(() {});
-
-        if (isFinalResult && recognizedWords.trim().isNotEmpty) {
-          setState(() => _isListeningVoice = false);
-          _sendMessage(null, true);
-        }
-      },
-      onStatus: (status) {
-        if (!mounted) return;
-        if (status == 'done' || status == 'notListening') {
-          setState(() => _isListeningVoice = false);
-          // If speech finished with recognized text, send automatically!
-          final currentText = _textController.text.trim();
-          if (currentText.isNotEmpty && _isVoiceOrigin) {
-            _sendMessage(null, true);
-          }
-        }
-      },
-      onError: (errMsg) {
-        if (!mounted) return;
-        // If words were already recognized, do not display an error; finalize and send
-        if (_textController.text.trim().isNotEmpty) {
-          setState(() => _isListeningVoice = false);
-          _sendMessage(null, true);
-          return;
-        }
-
-        setState(() => _isListeningVoice = false);
-        // Translate or soften common speech engine timeout/silence messages
-        if (errMsg.contains('no_match') || errMsg.contains('timeout')) {
-          ScaffoldMessenger.of(context)
-            ..clearSnackBars()
-            ..showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Suara tidak terdengar. Ketuk mikrofon dan bicara lebih dekat ya!',
-                ),
-                backgroundColor: AppColors.primary,
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-        } else {
-          ScaffoldMessenger.of(context)
-            ..clearSnackBars()
-            ..showSnackBar(
-              SnackBar(
-                content: Text('Mikrofon: $errMsg'),
-                backgroundColor: AppColors.danger,
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-        }
+  void _toggleVoiceInput() {
+    VoiceListeningModal.show(
+      context: context,
+      voiceIoService: _voiceIoService,
+      onSend: (spokenText) {
+        _sendMessage(spokenText, true);
       },
     );
-
-    if (!started && mounted) {
-      setState(() => _isListeningVoice = false);
-    }
   }
 
   @override
@@ -805,11 +728,9 @@ class _CoachPageState extends State<CoachPage> {
                                     style: AppTypography.body,
                                     decoration: InputDecoration(
                                       isDense: true,
-                                      hintText: _isListeningVoice
-                                          ? 'Mendengarkan suara kamu...'
-                                          : (_selectedReceiptBytes != null
-                                              ? 'Catatan nota (opsional)...'
-                                              : 'Tulis transaksi atau tanya...'),
+                                      hintText: _selectedReceiptBytes != null
+                                          ? 'Catatan nota (opsional)...'
+                                          : 'Tulis transaksi atau tanya...',
                                       hintStyle: AppTypography.bodySecondary.copyWith(
                                         fontSize: 13,
                                       ),
@@ -874,15 +795,8 @@ class _CoachPageState extends State<CoachPage> {
                                 duration: const Duration(milliseconds: 200),
                                 width: 48,
                                 height: 48,
-                                decoration: BoxDecoration(
-                                  gradient: _isListeningVoice
-                                      ? const LinearGradient(
-                                          colors: [
-                                            Color(0xFFEF4444),
-                                            Color(0xFFDC2626),
-                                          ],
-                                        )
-                                      : AppColors.aiAccentGradient,
+                                decoration: const BoxDecoration(
+                                  gradient: AppColors.aiAccentGradient,
                                   shape: BoxShape.circle,
                                   boxShadow: AppSpacing.glowShadow,
                                 ),
@@ -892,13 +806,9 @@ class _CoachPageState extends State<CoachPage> {
                                         ? PhosphorIcons.arrowUp(
                                             PhosphorIconsStyle.bold,
                                           )
-                                        : (_isListeningVoice
-                                            ? PhosphorIcons.stop(
-                                                PhosphorIconsStyle.fill,
-                                              )
-                                            : PhosphorIcons.microphone(
-                                                PhosphorIconsStyle.bold,
-                                              )),
+                                        : PhosphorIcons.microphone(
+                                            PhosphorIconsStyle.bold,
+                                          ),
                                     color: Colors.white,
                                     size: 20,
                                   ),
@@ -952,7 +862,7 @@ class _CoachPageState extends State<CoachPage> {
         children: [
           Container(
             constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * (isUser ? 0.78 : 0.83),
+              maxWidth: MediaQuery.of(context).size.width * (isUser ? 0.78 : 0.88),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
@@ -978,10 +888,11 @@ class _CoachPageState extends State<CoachPage> {
                   alignment: Alignment.bottomRight,
                   child: Text(
                     timeStr,
-                    style: TextStyle(
-                      fontSize: 10,
+                    style: GoogleFonts.urbanist(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
                       color: isUser
-                          ? Colors.white.withValues(alpha: 0.7)
+                          ? Colors.white.withValues(alpha: 0.75)
                           : AppColors.textSecondary,
                     ),
                   ),
@@ -1078,14 +989,15 @@ class _CoachPageState extends State<CoachPage> {
     );
   }
 
-  /// Formatter untuk pesan chat dengan spacing paragraf rapi dan dukungan bullet/list & bold
+  /// Formatter untuk pesan chat dengan spacing paragraf rapi dan dukungan bullet/list, bold & radar cards
   Widget _buildMessageContent(String content, bool isUser) {
     if (isUser) {
       return Text(
         content,
-        style: const TextStyle(
+        style: GoogleFonts.urbanist(
           color: Colors.white,
           fontSize: 14,
+          fontWeight: FontWeight.w500,
           height: 1.45,
         ),
       );
@@ -1104,33 +1016,84 @@ class _CoachPageState extends State<CoachPage> {
       final paragraph = paragraphs[p].trim();
       if (paragraph.isEmpty) continue;
 
+      // Cek apakah seluruh paragraf ini merupakan Divider markdown (misal: --- atau ━━━)
+      if (RegExp(r'^[-_—━*]{3,}$').hasMatch(paragraph)) {
+        children.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Divider(
+              color: AppColors.neutral200.withValues(alpha: 0.9),
+              thickness: 1,
+              height: 1,
+            ),
+          ),
+        );
+        continue;
+      }
+
       final lines = paragraph.split('\n');
+
+      // Cek apakah blok ini adalah Radar Ringkasan Saham/IPO
+      final isRadarBlock = paragraph.contains('🎯') &&
+          (paragraph.toUpperCase().contains('RADAR') ||
+              paragraph.toUpperCase().contains('REKOMENDASI'));
+
       final isListBlock = lines.any((l) =>
           l.trim().startsWith('- ') ||
           l.trim().startsWith('* ') ||
           l.trim().startsWith('• ') ||
+          l.trim().startsWith('· ') ||
+          l.trim().startsWith('– ') ||
           RegExp(r'^\d+\.\s+').hasMatch(l.trim()));
 
-      if (isListBlock) {
+      if (isRadarBlock) {
+        children.add(_buildRadarSummaryCard(lines));
+      } else if (isListBlock) {
+        final List<Widget> listItems = [];
         for (int l = 0; l < lines.length; l++) {
           final line = lines[l].trim();
           if (line.isEmpty) continue;
 
+          // Cek divider di dalam baris
+          if (RegExp(r'^[-_—━*]{3,}$').hasMatch(line)) {
+            listItems.add(
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Divider(
+                  color: AppColors.neutral200.withValues(alpha: 0.9),
+                  thickness: 1,
+                  height: 1,
+                ),
+              ),
+            );
+            continue;
+          }
+
           final isBullet = line.startsWith('- ') ||
               line.startsWith('* ') ||
-              line.startsWith('• ');
+              line.startsWith('• ') ||
+              line.startsWith('· ') ||
+              line.startsWith('– ');
           final isNumbered = RegExp(r'^\d+\.\s+').hasMatch(line);
 
           if (isBullet || isNumbered) {
-            children.add(_buildListItem(line, isNumbered: isNumbered));
+            listItems.add(_buildListItem(line, isNumbered: isNumbered));
           } else {
-            children.add(_buildParagraphItem(line));
+            listItems.add(_buildParagraphItem(line));
           }
 
           if (l < lines.length - 1) {
-            children.add(const SizedBox(height: 5));
+            listItems.add(const SizedBox(height: 5));
           }
         }
+
+        children.add(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: listItems,
+          ),
+        );
       } else {
         children.add(_buildParagraphItem(paragraph));
       }
@@ -1143,7 +1106,7 @@ class _CoachPageState extends State<CoachPage> {
     if (children.isEmpty) {
       return Text(
         content,
-        style: const TextStyle(
+        style: GoogleFonts.urbanist(
           color: AppColors.textPrimary,
           fontSize: 14,
           height: 1.5,
@@ -1158,7 +1121,105 @@ class _CoachPageState extends State<CoachPage> {
     );
   }
 
+  /// Specialized card for Radar IPO / Stock Analysis summaries
+  Widget _buildRadarSummaryCard(List<String> lines) {
+    final List<Widget> cardItems = [];
+
+    for (int i = 0; i < lines.length; i++) {
+      final rawLine = lines[i].trim();
+      if (rawLine.isEmpty) continue;
+
+      if (RegExp(r'^[-_—━*]{3,}$').hasMatch(rawLine)) {
+        cardItems.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Divider(
+              color: AppColors.primary.withValues(alpha: 0.15),
+              thickness: 1,
+              height: 1,
+            ),
+          ),
+        );
+        continue;
+      }
+
+      final isBullet = rawLine.startsWith('- ') ||
+          rawLine.startsWith('* ') ||
+          rawLine.startsWith('• ') ||
+          rawLine.startsWith('· ') ||
+          rawLine.startsWith('– ');
+      final isNumbered = RegExp(r'^\d+\.\s+').hasMatch(rawLine);
+
+      if (isBullet || isNumbered) {
+        cardItems.add(
+          _buildListItem(
+            rawLine,
+            isNumbered: isNumbered,
+            isRadarContext: true,
+          ),
+        );
+      } else if (rawLine.contains('🎯')) {
+        // Radar Header with pill styling
+        cardItems.add(
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: _buildRichFormattedText(
+              rawLine,
+              baseStyle: GoogleFonts.urbanist(
+                color: AppColors.primaryDark,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        );
+      } else {
+        cardItems.add(_buildParagraphItem(rawLine));
+      }
+
+      if (i < lines.length - 1) {
+        cardItems.add(const SizedBox(height: 5));
+      }
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.22),
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: cardItems,
+      ),
+    );
+  }
+
   Widget _buildParagraphItem(String text) {
+    if (RegExp(r'^[-_—━*]{3,}$').hasMatch(text.trim())) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Divider(
+          color: AppColors.neutral200.withValues(alpha: 0.9),
+          thickness: 1,
+          height: 1,
+        ),
+      );
+    }
+
     final headerMatch = RegExp(r'^#{1,4}\s+(.*)$').firstMatch(text.trim());
     final cleanedText =
         headerMatch != null ? headerMatch.group(1)!.trim() : text;
@@ -1166,9 +1227,9 @@ class _CoachPageState extends State<CoachPage> {
 
     return _buildRichFormattedText(
       cleanedText,
-      baseStyle: TextStyle(
+      baseStyle: GoogleFonts.urbanist(
         color: AppColors.textPrimary,
-        fontSize: 14,
+        fontSize: isHeader ? 15.5 : 14,
         fontWeight: isHeader ? FontWeight.w700 : FontWeight.w400,
         height: 1.52,
         letterSpacing: 0.1,
@@ -1176,7 +1237,11 @@ class _CoachPageState extends State<CoachPage> {
     );
   }
 
-  Widget _buildListItem(String text, {required bool isNumbered}) {
+  Widget _buildListItem(
+    String text, {
+    required bool isNumbered,
+    bool isRadarContext = false,
+  }) {
     String prefix;
     String body;
     if (isNumbered) {
@@ -1185,7 +1250,7 @@ class _CoachPageState extends State<CoachPage> {
       body = match?.group(2) ?? text;
     } else {
       prefix = '•';
-      body = text.replaceFirst(RegExp(r'^[-*•]\s+'), '');
+      body = text.replaceFirst(RegExp(r'^[-*•·–]\s+'), '');
     }
 
     return Padding(
@@ -1193,23 +1258,28 @@ class _CoachPageState extends State<CoachPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            isNumbered ? prefix : '•',
-            style: TextStyle(
-              color: isNumbered ? AppColors.primary : AppColors.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              height: 1.5,
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              isNumbered ? prefix : '•',
+              style: GoogleFonts.urbanist(
+                color: isRadarContext
+                    ? AppColors.primary
+                    : (isNumbered ? AppColors.primary : AppColors.textSecondary),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                height: 1.4,
+              ),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: _buildRichFormattedText(
               body,
-              baseStyle: const TextStyle(
+              baseStyle: GoogleFonts.urbanist(
                 color: AppColors.textPrimary,
-                fontSize: 14,
-                height: 1.5,
+                fontSize: 13.5,
+                height: 1.48,
                 letterSpacing: 0.1,
               ),
             ),
@@ -1229,12 +1299,34 @@ class _CoachPageState extends State<CoachPage> {
     for (int i = 0; i < parts.length; i++) {
       if (parts[i].isEmpty) continue;
       final isBold = i % 2 == 1;
+
+      Color? tagColor;
+      if (isBold) {
+        final upper = parts[i].toUpperCase();
+        if (upper.contains('BUY') ||
+            upper.contains('ARA') ||
+            upper.contains('AKUMULASI') ||
+            upper.contains('UNTUNG')) {
+          tagColor = const Color(0xFF16A34A);
+        } else if (upper.contains('HIGH RISK') ||
+            upper.contains('SELL') ||
+            upper.contains('ARB') ||
+            upper.contains('AVOID')) {
+          tagColor = const Color(0xFFDC2626);
+        } else if (upper.contains('WAIT') ||
+            upper.contains('HOLD') ||
+            upper.contains('MEDIUM RISK')) {
+          tagColor = const Color(0xFFD97706);
+        }
+      }
+
       spans.add(
         TextSpan(
           text: parts[i],
           style: isBold
               ? baseStyle.copyWith(
                   fontWeight: FontWeight.w700,
+                  color: tagColor ?? baseStyle.color,
                 )
               : baseStyle,
         ),

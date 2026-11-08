@@ -19,6 +19,11 @@ class AppColors {
   static const Color surfaceCard = surface;
   static const Color surfaceCardMuted = Color(0xF2FFFFFF);
 
+  // Neutral Grayscale Tokens
+  static const Color neutral100 = Color(0xFFF3F4F6);
+  static const Color neutral200 = Color(0xFFE5E7EB);
+  static const Color neutral300 = Color(0xFFD1D5DB);
+
   // Semantic Status Colors
   static const Color income = Color(0xFF22C55E); // Success / Green
   static const Color expense = Color(0xFFEF4444); // Danger / Red

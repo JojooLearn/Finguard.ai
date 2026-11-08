@@ -4,7 +4,7 @@ import { RSI, SMA } from "npm:technicalindicators@3.1.0";
 
 try {
   (yahooFinance as any).suppressNotices?.(["yahooSurvey"]);
-} catch (_) {}
+} catch (_) { }
 
 export interface OnDemandStockAnalysis {
   ticker: string;
@@ -844,7 +844,7 @@ export async function fetchOnDemandStockAnalysis(rawTicker: string): Promise<OnD
         if (rsiArr && rsiArr.length > 0 && typeof rsiArr[rsiArr.length - 1] === "number") {
           rsiValue = Number(rsiArr[rsiArr.length - 1].toFixed(2));
         }
-      } catch (_) {}
+      } catch (_) { }
 
       if (rsiValue === null) {
         rsiValue = computeRSIFallback(closePrices, 14);
@@ -866,7 +866,7 @@ export async function fetchOnDemandStockAnalysis(rawTicker: string): Promise<OnD
         if (smaArr && smaArr.length > 0 && typeof smaArr[smaArr.length - 1] === "number") {
           sma50 = Number(smaArr[smaArr.length - 1].toFixed(2));
         }
-      } catch (_) {}
+      } catch (_) { }
 
       if (sma50 === null) {
         sma50 = computeSMAFallback(closePrices, period);
@@ -1149,9 +1149,9 @@ export async function fetchIpoStockIntelligence(userMessage: string): Promise<st
   // Run multi-source search in parallel: Targeted Google News + Targeted Bing News Snippets (with full descriptions!)
   const queries = targetIpoTicker
     ? [
-        `IPO saham ${targetIpoTicker} BEI`,
-        `IPO ${targetIpoTicker} underwriter harga saham`,
-      ]
+      `IPO saham ${targetIpoTicker} BEI`,
+      `IPO ${targetIpoTicker} underwriter harga saham`,
+    ]
     : [`saham IPO BEI e-IPO terbaru underwriter`];
 
   const [bingSnippets1, googleTitles1, googleTitles2] = await Promise.all([
@@ -1208,7 +1208,7 @@ FORMAT WAJIB SAAT MENJAWAB ANALISIS SAHAM IPO (STANDAR RADAR IPO FINGUARD):
 Setiap kali pengguna menanyakan analisis saham IPO (seperti ANDA, WBSA, dll.), AI Coach WAJIB membuka jawaban dengan KOTAK RANGKUMAN KEPUTUSAN EKSEKUTIF yang tegas:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 **RANGKUMAN RADAR IPO [${targetIpoTicker || "EMITEN"}]**
+🎯 **RANGKUMAN RADAR [${targetIpoTicker || "EMITEN"}]**
 • **REKOMENDASI**: **BUY / SPECULATIVE BUY (78% - 80% Momentum Listing)** [atau WAIT & SEE / AVOID beserta persentasenya]
 • **POTENSI LISTING HARI PERTAMA**: **OPEN HIGH / POTENSI 1x ARA** [+ Info Bonus Waran jika ada]
 • **UNDERWRITER UTAMA**: **[Sebutkan Kode Broker UW, misal HP - Henan Putihrai Sekuritas / MG & TP]**

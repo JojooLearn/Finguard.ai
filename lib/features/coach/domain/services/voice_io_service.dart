@@ -83,6 +83,10 @@ class VoiceIoService {
         _isInitialized = await _speechToText.initialize(
           onStatus: onStatus,
           onError: (err) => onError?.call(err.errorMsg),
+          options: [
+            SpeechToText.androidNoBluetooth,
+            SpeechToText.androidIntentLookup,
+          ],
         );
       }
       return _isInitialized;
@@ -97,6 +101,8 @@ class VoiceIoService {
     required void Function(String recognizedWords, bool isFinalResult) onResult,
     void Function(String status)? onStatus,
     void Function(String errorMsg)? onError,
+    void Function(double soundLevel)? onSoundLevelChange,
+    String? localeId,
   }) async {
     final ready = await ensurePermissionsAndInitialize(
       onStatus: onStatus,
@@ -110,33 +116,36 @@ class VoiceIoService {
     );
     if (!ready) return false;
 
-    String? preferredLocale;
-    try {
-      final locales = await _speechToText.locales();
-      final hasIndonesian =
-          locales.any((l) => l.localeId.toLowerCase().startsWith('id'));
-      if (hasIndonesian) {
-        preferredLocale = 'id_ID';
-      } else {
-        final sys = await _speechToText.systemLocale();
+    // Fast-resolve preferred locale without hanging broadcast queries
+    String effectiveLocale = localeId ?? 'id_ID';
+    if (localeId == null) {
+      try {
+        final sys = await _speechToText
+            .systemLocale()
+            .timeout(const Duration(milliseconds: 300), onTimeout: () => null);
         if (sys != null && sys.localeId.isNotEmpty) {
-          preferredLocale = sys.localeId;
+          if (sys.localeId.toLowerCase().startsWith('id')) {
+            effectiveLocale = 'id_ID';
+          }
         }
+      } catch (_) {
+        effectiveLocale = 'id_ID';
       }
-    } catch (_) {}
+    }
 
     await _speechToText.listen(
-      listenOptions: SpeechListenOptions(
-        localeId: preferredLocale ?? 'id_ID',
-        listenMode: ListenMode.dictation,
-        partialResults: true,
-        cancelOnError: false, // Do not abort immediately on silence/pause
-        pauseFor: const Duration(seconds: 4),
-        listenFor: const Duration(seconds: 30),
-      ),
       onResult: (SpeechRecognitionResult result) {
         onResult(result.recognizedWords, result.finalResult);
       },
+      onSoundLevelChange: onSoundLevelChange,
+      listenOptions: SpeechListenOptions(
+        localeId: effectiveLocale,
+        listenMode: ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: false,
+        pauseFor: const Duration(seconds: 4),
+        listenFor: const Duration(seconds: 30),
+      ),
     );
     return true;
   }

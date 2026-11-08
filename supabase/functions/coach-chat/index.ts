@@ -1025,7 +1025,7 @@ ATURAN WAJIB KLASIFIKASI INTENT:
       * Gunakan data lengkap dari bagian [SYSTEM CONTEXT: ENGINE ANALISIS SAHAM IPO] di atas.
       * AI Coach WAJIB membuka jawaban dengan KOTAK RANGKUMAN RADAR IPO yang tegas:
         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        🎯 **RANGKUMAN RADAR IPO [KODE TICKER - NAMA PERUSAHAAN]**
+        🎯 **RANGKUMAN RADAR [KODE TICKER - NAMA PERUSAHAAN]**
         • **REKOMENDASI**: **BUY / SPECULATIVE BUY (78% - 80% Momentum Listing)** [atau WAIT & SEE / AVOID beserta persentasenya]
         • **POTENSI LISTING HARI PERTAMA**: **OPEN HIGH / POTENSI 1x ARA** [+ Info Bonus Waran jika ada, misal Bonus Waran ANDA 10:1,42]
         • **UNDERWRITER (UW)**: **[Sebutkan Kode Broker UW, misal HP - Henan Putihrai Sekuritas / MG & TP]**
