@@ -32,15 +32,21 @@ const STOP_WORDS = new Set([
   "TERL", "CUKU", "HAMP", "NYAR", "SEKI", "KIRA", "MUNG", "PAST", "TENT", "JELA",
   "BENA", "SALA", "TEPA", "COCOK", "SESU", "BERA", "TANG", "HARG", "PENU", "BUKA",
   "TUTU", "TING", "REND", "VOLU", "NILAI", "BROK", "SUMM", "ORDE", "BOOK", "TOTA",
-  "ANTRE", "ANTR", " JATA", "jata", "POOL", "WARA", "DEWA" // Note: DEWA is handled via KNOWN_MARKET_TICKERS
+  "ANTRE", "ANTR", "JATA", "POOL", "WARA",
+  // Trading strategy & 4-letter action/common words that must NOT be treated as stock tickers
+  "HOLD", "SELL", "MAIN", "LOSS", "STOP", "SWING", "SCAL", "GAIN", "LONG", "HIGH",
+  "LOWS", "TICK", "OPEN", "AREA", "ZONA", "JUAL", "PLAN", "WAIT", "NEXT", "FUND",
+  "CASH", "DUIT", "RULE", "RISK", "SIZE", "PLUS", "NOOB", "HAKA", "HAKI", "AUTO",
+  "FAST", "PLAY", "REAL", "FAKE", "PEAK", "OVER", "NONE", "ZERO", "NOTE", "VWAP",
+  "MACD", "BEIS", "LIVE", "MORE", "ONLY", "JUST", "WHAT", "WHEN", "HERE", "THAT",
+  "THIS", "WITH", "FROM", "HAVE", "WILL", "BEEN", "SOME", "TIME", "BACK", "LIKE",
+  "WANT", "NEED", "ATUR", "IKUT", "SELA", "KALA", "MAKS", "MINI", "BAWA", "DULU",
+  "PULA", "KINI", "SEGI", "SUDA", "MASI", "HARU", "BANY", "BIAR", "TUTU"
 ]);
 
-// Remove DEWA from STOP_WORDS so DEWA is always recognized as PT Darma Henwa Tbk
-STOP_WORDS.delete("DEWA");
-
-// Words that are both common Indonesian words AND real IDX tickers — only match when preceded by saham/emiten/ipo/kode/ticker
+// Words that are both common Indonesian words AND real IDX tickers — only match when preceded by saham/emiten/ipo/kode/ticker or written ALL-CAPS when unambiguous
 const AMBIGUOUS_TICKERS = new Set([
-  "ANDA", "BELI", "BUKA", "BACA", "SATU", "DUA", "TIGA", "UANG", "DANA", "KOTA", "BALI", "JAWA", "BUMI", "DEWA", "RAJA", "CUAN", "EMAS", "RATU", "GOLF", "WIFI", "FILM", "BANK", "LIFE", "HOME", "CARE", "FOOD", "GOOD", "FAST", "SAFE", "TRUE", "NICE", "BEST", "STAR", "MEGA", "DAYA"
+  "ANDA", "BELI", "BUKA", "BACA", "SATU", "DUA", "TIGA", "UANG", "DANA", "KOTA", "BALI", "JAWA", "BUMI", "DEWA", "RAJA", "CUAN", "EMAS", "RATU", "GOLF", "WIFI", "FILM", "BANK", "LIFE", "HOME", "CARE", "FOOD", "GOOD", "FAST", "SAFE", "TRUE", "NICE", "BEST", "STAR", "MEGA", "DAYA", "MAIN"
 ]);
 
 // Tickers that can be matched directly even without "saham" prefix because investors type them directly in uppercase
@@ -115,11 +121,13 @@ function extractFromSingleText(
     }
   }
 
-  // 3. Generic 4-letter token fallback if message has strong stock context
+  // 3. Generic 4-letter token fallback ONLY for uppercase tickers (prevents lowercase verbs like "hold", "main", "area" masquerading as tickers)
   if (hasContext && result.size === 0) {
     for (const rawToken of rawTokens) {
       const clean = rawToken.toUpperCase().replace(/\.JK$/i, "");
+      const isAllCaps = rawToken === clean;
       if (
+        isAllCaps &&
         clean.length === 4 &&
         /^[A-Z]{4}$/.test(clean) &&
         !STOP_WORDS.has(clean) &&
@@ -147,7 +155,7 @@ export function extractStockTickers(
   const localSet = new Set(knownLocalTickers.map((t) => t.toUpperCase()));
 
   const hasStockKeywordsInMsg =
-    /(?:saham|sahan|stock|emiten|ticker|kode|sinyal|investasi|ihsg|bursa|chart|tradingview|dividen|trading|pasar modal|analisa|analisis|lot|pe ratio|pbv|rsi|ma50|broker|bandar|bandarmologi|order\s*book|bid|offer|haka|haki|penutupan|closing|ipo|e-ipo|eipo|underwriter|allotment|penjatahan|ara|arb)/i.test(
+    /(?:saham|sahan|stock|emiten|ticker|kode|sinyal|investasi|ihsg|bursa|chart|tradingview|dividen|trading|pasar modal|analisa|analisis|lot|pe ratio|pbv|rsi|ma50|ma20|atr|broker|bandar|bandarmologi|order\s*book|bid|offer|haka|haki|penutupan|closing|opening|ipo|e-ipo|eipo|underwriter|allotment|penjatahan|ara|arb|trailing\s*stop|stop\s*loss|cut\s*loss|take\s*profit|target\s*profit|pasang\s*buy|buy\s*limit|antre\s*beli|hold|daily|day\s*trade|swing|scalp|\bts\b|\btp\b|\bsl\b|\bcl\b)/i.test(
       message
     );
   const isShortFollowUp =
@@ -166,22 +174,21 @@ export function extractStockTickers(
     return currentFound.slice(0, 4);
   }
 
-  // Follow-up Context Memory: If current message asks about stock details ("di saham itu", "broker summary terakhir", "harga penutupan berapa", "total bid berapa")
-  // without repeating the ticker name, recover the last discussed ticker from recentHistory!
+  // Follow-up Context Memory: Recover the last discussed ticker from recentHistory when asking follow-up strategy/price/exit questions!
   const isFollowUpStockQuestion =
     hasStockKeywordsInMsg ||
-    /(?:saham\s+itu|emiten\s+itu|itu\s+berapa|tanggal\s+berapa|harga\s+berapa|penutupan\s+berapa|total\s+bid|total\s+offer|kode\s+broker)/i.test(
+    /(?:saham\s+itu|emiten\s+itu|strategi\s*(?:nya|seperti apa)?|pasang\s*(?:buy|ts|tp|sl|cl)|sampai\s*kapan|itu\s+berapa|tanggal\s+berapa|harga\s+berapa|penutupan\s+berapa|total\s+bid|total\s+offer|kode\s+broker)/i.test(
       message
     );
 
   if (isFollowUpStockQuestion && Array.isArray(recentHistory) && recentHistory.length > 0) {
-    // Traverse history from newest to oldest
+    // Traverse history from newest to oldest, enabling ALL-CAPS ticker extraction (e.g. TRUS)
     for (let i = recentHistory.length - 1; i >= 0; i--) {
       const histContent = String(recentHistory[i]?.content || "");
       if (!histContent) continue;
-      const histTickers = extractFromSingleText(histContent, localSet, false);
+      const histTickers = extractFromSingleText(histContent, localSet, true);
       if (histTickers.length > 0) {
-        return [histTickers[0]];
+        return histTickers.slice(0, 2);
       }
     }
   }

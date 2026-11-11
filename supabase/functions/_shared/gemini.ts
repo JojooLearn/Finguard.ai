@@ -25,7 +25,9 @@ export async function callGemini({
   responseSchema,
   responseModalities,
   speechConfig,
-  timeoutMs = 7000,
+  timeoutMs = 18000,
+  maxOutputTokens,
+  preferReasoning = true,
 }: {
   systemInstruction?: string;
   contents: GeminiMessage[];
@@ -34,19 +36,22 @@ export async function callGemini({
   responseModalities?: string[];
   speechConfig?: Record<string, unknown>;
   timeoutMs?: number;
+  maxOutputTokens?: number;
+  preferReasoning?: boolean;
 }) {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) {
     throw new ApiError("GEMINI_API_KEY environment variable is not configured", 500, "MISSING_AI_KEY");
   }
 
-  const envModel = Deno.env.get("GEMINI_MODEL");
+  const envModel = Deno.env.get("GEMINI_MODEL")?.trim();
+  const baseCandidates = preferReasoning
+    ? ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    : ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"];
   const modelCandidates = Array.from(
     new Set([
       ...(envModel ? [envModel] : []),
-      "gemini-2.0-flash",
-      "gemini-2.5-flash",
-      "gemini-2.0-flash-lite",
+      ...baseCandidates,
     ])
   );
 
@@ -97,6 +102,7 @@ export async function callGemini({
       contents: sanitizedContents,
       generationConfig: {
         temperature,
+        ...(typeof maxOutputTokens === "number" ? { maxOutputTokens } : {}),
       },
       safetySettings: [
         { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -126,11 +132,15 @@ export async function callGemini({
     return body;
   };
 
+  const deadline = Date.now() + timeoutMs;
   let lastError = "";
   for (const model of modelCandidates) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs < 1500) break;
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), remainingMs);
     try {
       let res = await fetch(url, {
         method: "POST",

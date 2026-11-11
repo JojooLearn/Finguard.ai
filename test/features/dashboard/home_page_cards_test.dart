@@ -193,6 +193,22 @@ void main() {
         findsOneWidget,
       );
 
+      // Verify Dana Darurat banner Container follows zero-stroke tonal layering design
+      final bannerCardFinder = find.ancestor(
+        of: find.text('Target: Rp1.500.000'),
+        matching: find.byWidgetPredicate(
+          (w) =>
+              w is Container &&
+              w.decoration is BoxDecoration &&
+              (w.decoration as BoxDecoration).borderRadius ==
+                  BorderRadius.circular(18.0),
+        ),
+      );
+      expect(bannerCardFinder, findsOneWidget);
+      final bannerDecoration =
+          tester.widget<Container>(bannerCardFinder).decoration as BoxDecoration;
+      expect(bannerDecoration.border, isNull);
+
       // Tap Dana Darurat banner opens ExplanationSheet without exceptions
       await tester.ensureVisible(find.text('Dana Darurat'));
       await tester.pumpAndSettle();

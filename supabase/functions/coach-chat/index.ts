@@ -607,7 +607,7 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
           .select("role, content")
           .eq("conversation_id", activeConversationId)
           .order("created_at", { ascending: false })
-          .limit(6);
+          .limit(10);
         if (dbMessages && dbMessages.length > 0) {
           historyArray = dbMessages.reverse().map((m: any) => ({
             sender: m.role === "user" ? "user" : "assistant",
@@ -637,11 +637,11 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
       initialCandidateTickers.length > 0 ||
       /\b(ihsg|msci|ftse|bandarmologi|order\s*book|haka|haki|ara|arb|dividen|bi\s*rate|inflasi|saham|sahan|bursa|emiten)\b/i.test(message);
 
-    // For general recommendation queries, fetch live On-Demand data for a hybrid basket of top IDX stocks outside/across the DB
+    // For general recommendation queries, fetch live On-Demand data for curated IDX leaders plus active watchlist signals
     const tickersToFetchOnDemand = initialCandidateTickers.length > 0
       ? initialCandidateTickers
       : isGeneralStockRecommendationQuery
-        ? ["BBNI", "BRIS", "ADRO", "ICBP", "GOTO"]
+        ? ["BBNI", "BRIS", "ADRO"]
         : [];
 
     const ipoQueryInput =
@@ -669,13 +669,34 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
     let onDemandAnalyses: OnDemandStockAnalysis[] = initialOnDemandResults;
     let queriedTickers: string[] = [...tickersToFetchOnDemand];
 
-    // If candidate ticker wasn't detected by generic rules, check against active local tickers in finContext
+    // If candidate ticker wasn't detected cleanly, check against active local tickers in finContext
     if (queriedTickers.length === 0 && finContext.stockSignals && finContext.stockSignals.length > 0) {
       const localTickers = finContext.stockSignals.map((s) => s.ticker);
       const matchedLocal = extractStockTickers(message, localTickers, historyArray);
       if (matchedLocal.length > 0) {
         queriedTickers = matchedLocal;
         onDemandAnalyses = await Promise.all(matchedLocal.map((t) => fetchOnDemandStockAnalysis(t)));
+      }
+    }
+
+    // For general opening/stock recommendation queries, ALSO enrich top active watchlist radar signals (e.g. TRUS)
+    // with full live OHLCV candles, ATR(14), Trailing Stop %, and Support/Resistance levels!
+    if (
+      isGeneralStockRecommendationQuery &&
+      finContext.stockSignals &&
+      finContext.stockSignals.length > 0
+    ) {
+      const extraRadarTickers = finContext.stockSignals
+        .filter((s) => s.isValid)
+        .map((s) => s.ticker.toUpperCase())
+        .filter((t) => !queriedTickers.includes(t))
+        .slice(0, 2);
+      if (extraRadarTickers.length > 0) {
+        const extraResults = await Promise.all(
+          extraRadarTickers.map((t) => fetchOnDemandStockAnalysis(t))
+        );
+        queriedTickers = [...extraRadarTickers, ...queriedTickers];
+        onDemandAnalyses = [...extraResults, ...onDemandAnalyses];
       }
     }
 
@@ -911,7 +932,9 @@ ${personaGuideline}
 ATURAN UX WRITING & FORMAT (ZERO-SLOP):
 - JANGAN gunakan emoji berlebihan (maksimal 0-1 emoji di awal pesan). Dilarang menyematkan emoji di tiap kalimat!
 - Format jawaban dengan poin-poin singkat dan rapi agar nyaman dibaca di layar HP.
+- Tulis nominal Rupiah dengan satu titik pemisah ribuan yang valid (contoh: Rp44.600, DILARANG menulis titik ganda seperti Rp44..600).
 - Gunakan bahasa santai khas anak muda/tongkrongan (lu/gue atau kamu/aku yang luwes).
+- KESINAMBUNGAN OBROLAN MULTI-TURN (WAJIB): Baca & lanjutkan topik dari pesan sebelumnya! Jika pengguna mengajukan pertanyaan lanjutan ("strategi seperti apa", "pasang buynya dimana", "pasang TS bagaimana", "hold sampai kapan atau daily saja"), WAJIB langsung membedah emiten & konteks yang baru saja dibahas pada pesan sebelumnya menggunakan DATA TEKNIKAL NYATA (zona entry fraksi BEI, Trailing Stop % & harga berbasis ATR, target TP1/TP2, dan kriteria Hold vs Day-Trade), DILARANG mengabaikan konteks atau membuang topik ke saham lain!
 - HINDARI istilah perbankan kaku ("surplus kas", "pagu anggaran", "instrumen likuid", "defisit berjalan").
 - GANTI dengan istilah ramah: "uang dingin", "sisa jatah belanja", "isi dompet/saldo", "boncos/tekor", "tabungan/celengan".
 
@@ -1098,10 +1121,13 @@ ${isGeneralStockRecommendationQuery ? `   A. JIKA PENGGUNA MENANYAKAN REKOMENDAS
       * TAMPILKAN ANGKA RIIL DARI DATABASE: Pemasukan Rp${finContext.monthlyIncome.toLocaleString("id-ID")}, Kebutuhan pokok Rp${finContext.essentialExpenses.toLocaleString("id-ID")}, Cicilan Rp${finContext.monthlyDebt.toLocaleString("id-ID")}, Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Profil Risiko ${finContext.riskProfile}.
       * ATURAN EMAS: Dana Darurat First (minimal 3x kebutuhan = Rp${(finContext.essentialExpenses * 3).toLocaleString("id-ID")}) sebelum alokasi saham; anjurkan porsi sehat 10-20% pemasukan.
       * GABUNGKAN Watchlist Sinyal TradingView Lokal DAN Saham Live On-Demand Bursa (BBNI, BRIS, ADRO, ICBP, GOTO, dll.) lengkap dengan perkiraan jumlah lot terjangkau (1 Lot = 100 lembar).` : ""}
-${queriedTickers.length > 0 && !isIpoQuery ? `   B. JIKA PENGGUNA MENANYAKAN TICKER SPESIFIK ON-DEMAND ATAU LANJUTAN:
+${queriedTickers.length > 0 && !isIpoQuery ? `   B. JIKA PENGGUNA MENANYAKAN TICKER SPESIFIK ON-DEMAND ATAU PERTANYAAN STRATEGI LANJUTAN:
       * DILARANG mengatakan "data saham X tidak ada di database"! Gunakan DATA SAHAM ON-DEMAND TERVERIFIKASI di atas.
-      * Jawab pertanyaan verifikasi spesifik di kalimat pertama jika ditanya.
-      * Buka jawaban dengan KOTAK RANGKUMAN KEPUTUSAN KUANTITATIF (Rekomendasi %, Penutupan Terakhir & 1 Lot, Target Profit & Stop Loss, Total Bid vs Offer & Top Buyer), lalu uraikan 5 poin berbasis data (OHLCV & Keterjangkauan lot, RSI & MA50, Rincian Order Book 3 level, Rincian Top 3 Broker Net Buy/Sell, Sentimen Berita).` : ""}
+      * Jika ini pertanyaan lanjutan ("strategi seperti apa", "pasang buy dimana", "pasang TS dimana", "hold berapa lama atau daily saja"), WAJIB langsung menjawab pertanyaan strategi tersebut untuk emiten yang sedang dibahas (${queriedTickers.join(", ")}) dengan angka konkret dari PANDUAN STRATEGI & ATR:
+        1) Area & timing **Pasang Buy** saat market opening (antre buy on weakness di Support Bid fraksi BEI vs syarat konfirmasi jika opening naik; hindari kejar pucuk saat gap up > ATR!).
+        2) Cara & angka **Pasang Trailing Stop (TS)** secara tepat (% TS berbasis ATR(14) + harga trigger TS dalam Rupiah + Stop Loss keras di bawah S1/S2).
+        3) **Horizon Hold vs Daily Trade** (jelaskan kapan cukup main daily/fast swing vs kapan layak hold lebih lama selama penutupan harian di atas MA20/Support kunci).
+      * Jika permintaan analisa menyeluruh baru, buka dengan KOTAK RANGKUMAN KEPUTUSAN KUANTITATIF (Rekomendasi %, Penutupan Terakhir & 1 Lot, Target Profit & Stop Loss, Total Bid vs Offer & Top Buyer), lalu uraikan data teknikal MA5/MA20/MA50, RSI, ATR, Order Book, Broker Summary, dan Sentimen Berita.` : ""}
 ${isMarketNewsQuery && queriedTickers.length === 0 && !isIpoQuery ? `   C. JIKA PENGGUNA MENANYAKAN SENTIMEN PASAR, SAHAM VIRAL, REBALANCING MSCI/FTSE, ATAU IHSG MAKRO:
       * Gunakan data berita live di atas, bedah outlook IHSG (Support 6.000, Resistance 6.340, area 6.557 - 6.700), arus dana asing, dan katalis MSCI/FTSE.` : ""}
 ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JELI, EMMI, SWAP, dll.):
@@ -1114,7 +1140,7 @@ ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JE
    - Jawab obrolan tanpa memaksakan template transaksi apabila tidak ada transaksi baru.
    - needs_clarification = false, structured_transaction = null, intent = "general_chat".`;
 
-    // --- Build Multi-turn Contents for Dual-Engine Execution (Groq Primary + Gemini Backup) ---
+    // --- Build Multi-turn Contents for Smart Dual-Engine Execution (Quality-First for Deep Analysis) ---
     const conversationContents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
     const groqMessages: GroqMessage[] = [];
 
@@ -1128,8 +1154,8 @@ ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JE
           });
           groqMessages.push({
             role: isUserTurn ? "user" : "assistant",
-            content: item.content.length > 260
-              ? `${item.content.slice(0, 260)}...`
+            content: item.content.length > 1200
+              ? `${item.content.slice(0, 1200)}...`
               : item.content,
           });
         }
@@ -1198,7 +1224,17 @@ BALAS HANYA 1 JSON VALID:
   "confidence": 0.95
 }`;
 
-    const groqSystemPrompt = isStockRelatedQuery
+    const isDeepAnalysisQuery =
+      isStockRelatedQuery ||
+      isMarketNewsQuery ||
+      isIpoQuery ||
+      queriedTickers.length > 0 ||
+      isGeneralStockRecommendationQuery ||
+      /(?:analisa|analisis|strategi|prediksi|prospek|rekomendasi|rekomen|saran|evaluasi|konsultasi|simulasi|trailing\s*stop|stop\s*loss|cut\s*loss|support|resistance|alokasi|portofolio|opening|daily|swing|\bhold\b|\bts\b|\btp\b)/i.test(
+        message
+      );
+
+    const groqSystemPrompt = isDeepAnalysisQuery
       ? `${systemPrompt}
 
 ATURAN FORMAT OUTPUT JSON WAJIB:
@@ -1207,7 +1243,7 @@ Keluaran HARUS berupa SATU objek JSON valid (tanpa teks tambahan atau markdown) 
   "intent": "record_expense | record_income | query_financial_status | query_budget | query_goal | purchase_consultation | query_stock_signal | general_chat",
   "reply": "string (balasan Coach dalam Bahasa Indonesia yang natural sesuai aturan di atas)",
   "structured_transaction": {
-    "type": "expense | income",
+    "type": "expense | income | goal_deposit",
     "amount": 0,
     "currency": "IDR",
     "transaction_date": "YYYY-MM-DD",
@@ -1226,15 +1262,15 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
     let aiStatus = "completed";
     let errorCode: string | null = null;
 
-    // Circuit Breaker: Attempt 1 -> Groq Primary (4s strict timeout); Attempt 2 -> Gemini Backup (pure TEXT)
-    try {
+    const invokeGroqEngine = async (timeoutMs: number, maxTokens: number) => {
       const startMs = Date.now();
       const groqRaw = await callGroq({
         systemInstruction: groqSystemPrompt,
         messages: groqMessages,
         temperature: strictness >= 4 ? 0.5 : 0.2,
         jsonMode: true,
-        timeoutMs: 4500,
+        timeoutMs,
+        maxTokens,
       });
       const parsedGroq = parseStructuredCoachResponse(groqRaw);
       if (
@@ -1247,44 +1283,78 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
       aiResult = parsedGroq;
       sourceEngine = "groq";
       console.log(
-        `[coach-chat] Dual-Engine OK: source_engine=groq latency_ms=${Date.now() - startMs}`
+        `[coach-chat] Engine OK: source_engine=groq deep=${isDeepAnalysisQuery} latency_ms=${Date.now() - startMs}`
       );
-    } catch (groqErr: any) {
-      const groqReason = groqErr instanceof Error ? groqErr.message : String(groqErr);
-      console.warn(
-        `[coach-chat] Groq failed/timed out (${groqReason}), failing over to Gemini Backup Engine`
-      );
+    };
+
+    const invokeGeminiEngine = async (timeoutMs: number, preferReasoning: boolean) => {
+      const startMs = Date.now();
+      const geminiRaw = await callGemini({
+        systemInstruction: isDeepAnalysisQuery ? systemPrompt : compactGroqPrompt,
+        contents: conversationContents,
+        temperature: strictness >= 4 ? 0.45 : 0.2,
+        responseSchema: STRUCTURED_EXTRACTION_SCHEMA,
+        timeoutMs,
+        maxOutputTokens: isDeepAnalysisQuery ? 2048 : 1200,
+        preferReasoning,
+      });
+      const parsedGemini = parseStructuredCoachResponse(geminiRaw);
+      if (
+        !parsedGemini ||
+        typeof parsedGemini.reply !== "string" ||
+        parsedGemini.reply.trim().length === 0
+      ) {
+        throw new Error("Gemini returned empty or invalid reply field");
+      }
+      aiResult = parsedGemini;
       sourceEngine = "gemini";
+      console.log(
+        `[coach-chat] Engine OK: source_engine=gemini deep=${isDeepAnalysisQuery} latency_ms=${Date.now() - startMs}`
+      );
+    };
 
+    // Smart Accuracy-First Routing:
+    // - Deep analysis / stock strategy / prediction / advice -> Gemini 2.5 Flash primary (22s budget), Groq backup (14s budget)
+    // - Fast logging / greetings / quick balance -> Groq primary (6.5s budget), Gemini backup (12s budget)
+    if (isDeepAnalysisQuery) {
       try {
-        const startMs = Date.now();
-        const geminiRaw = await callGemini({
-          systemInstruction: isStockRelatedQuery ? systemPrompt : compactGroqPrompt,
-          contents: conversationContents,
-          temperature: strictness >= 4 ? 0.5 : 0.2,
-          responseSchema: STRUCTURED_EXTRACTION_SCHEMA,
-          timeoutMs: 6500,
-        });
-        aiResult = parseStructuredCoachResponse(geminiRaw);
-        console.log(
-          `[coach-chat] Dual-Engine Failover OK: source_engine=gemini latency_ms=${Date.now() - startMs}`
-        );
-      } catch (geminiErr: any) {
-        aiStatus = "failed";
-        errorCode = geminiErr instanceof ApiError ? geminiErr.code : "AI_PARSE_ERROR";
-        const detailMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
-        console.error("[coach-chat] Both Groq & Gemini failed:", detailMsg);
-
-        await supabaseClient
-          .from("ai_requests")
-          .update({ status: "failed", error_code: errorCode, updated_at: new Date().toISOString() })
-          .eq("id", aiRequest.id);
-
-        throw new ApiError(
-          `Gagal memproses pesan dengan AI: ${detailMsg}`,
-          502,
-          "AI_PROCESSING_FAILED"
-        );
+        await invokeGeminiEngine(22000, true);
+      } catch (primaryErr: any) {
+        const reason = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+        console.warn(`[coach-chat] Deep Gemini primary failed (${reason}), failing over to Groq`);
+        try {
+          await invokeGroqEngine(14000, 1800);
+        } catch (backupErr: any) {
+          aiStatus = "failed";
+          errorCode = backupErr instanceof ApiError ? backupErr.code : "AI_PARSE_ERROR";
+          const detailMsg = backupErr instanceof Error ? backupErr.message : String(backupErr);
+          console.error("[coach-chat] Both Gemini & Groq failed on deep analysis:", detailMsg);
+          await supabaseClient
+            .from("ai_requests")
+            .update({ status: "failed", error_code: errorCode, updated_at: new Date().toISOString() })
+            .eq("id", aiRequest.id);
+          throw new ApiError(`Gagal memproses analisa AI: ${detailMsg}`, 502, "AI_PROCESSING_FAILED");
+        }
+      }
+    } else {
+      try {
+        await invokeGroqEngine(6500, 1500);
+      } catch (primaryErr: any) {
+        const reason = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+        console.warn(`[coach-chat] Groq fast primary failed (${reason}), failing over to Gemini`);
+        try {
+          await invokeGeminiEngine(12000, false);
+        } catch (backupErr: any) {
+          aiStatus = "failed";
+          errorCode = backupErr instanceof ApiError ? backupErr.code : "AI_PARSE_ERROR";
+          const detailMsg = backupErr instanceof Error ? backupErr.message : String(backupErr);
+          console.error("[coach-chat] Both Groq & Gemini failed:", detailMsg);
+          await supabaseClient
+            .from("ai_requests")
+            .update({ status: "failed", error_code: errorCode, updated_at: new Date().toISOString() })
+            .eq("id", aiRequest.id);
+          throw new ApiError(`Gagal memproses pesan dengan AI: ${detailMsg}`, 502, "AI_PROCESSING_FAILED");
+        }
       }
     }
 

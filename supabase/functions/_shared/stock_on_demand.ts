@@ -26,8 +26,18 @@ export interface OnDemandStockAnalysis {
   marketCap?: number;
   rsiValue: number | null;
   rsiStatus: "Oversold" | "Overbought" | "Netral" | "N/A";
+  sma5?: number | null;
+  sma20?: number | null;
   sma50: number | null;
   ma50Status: "Uptrend" | "Downtrend" | "N/A";
+  atr14?: number | null;
+  atrPercent?: number | null;
+  trailingStopPct?: number;
+  trailingStopPrice?: number;
+  supportZone?: string;
+  resistanceZone?: string;
+  idealBuyZone?: string;
+  holdingHorizonStrategy?: string;
   totalBidLots: number;
   totalOfferLots: number;
   orderBookSummary?: string;
@@ -861,6 +871,9 @@ export async function fetchOnDemandStockAnalysis(rawTicker: string): Promise<OnD
       }
     }
 
+    const sma5 = closePrices.length >= 5 ? computeSMAFallback(closePrices, 5) : null;
+    const sma20 = closePrices.length >= 20 ? computeSMAFallback(closePrices, 20) : null;
+
     let sma50: number | null = null;
     let ma50Status: "Uptrend" | "Downtrend" | "N/A" = "N/A";
     if (closePrices.length >= 20) {
@@ -879,6 +892,69 @@ export async function fetchOnDemandStockAnalysis(rawTicker: string): Promise<OnD
       if (sma50 !== null && price > 0) {
         ma50Status = price >= sma50 ? "Uptrend" : "Downtrend";
       }
+    }
+
+    // Deterministic 14-day ATR, real 20-day Swing Support/Resistance, Trailing Stop %, & Horizon Classification
+    let atr14: number | null = null;
+    let atrPercent: number | null = null;
+    if (bars.length >= 6) {
+      const atrBars = bars.slice(-Math.min(15, bars.length));
+      const trueRanges: number[] = [];
+      for (let i = 1; i < atrBars.length; i++) {
+        const prevC = atrBars[i - 1].close;
+        const tr = Math.max(
+          atrBars[i].high - atrBars[i].low,
+          Math.abs(atrBars[i].high - prevC),
+          Math.abs(atrBars[i].low - prevC)
+        );
+        trueRanges.push(tr);
+      }
+      if (trueRanges.length > 0 && lastClose > 0) {
+        atr14 = Number((trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length).toFixed(2));
+        atrPercent = Number(((atr14 / lastClose) * 100).toFixed(2));
+      }
+    }
+
+    const recentBars20 = bars.slice(-20);
+    const swingLow20 = recentBars20.length > 0
+      ? Math.min(...recentBars20.map((b) => b.low))
+      : Math.max(50, lastClose * 0.94);
+    const swingHigh20 = recentBars20.length > 0
+      ? Math.max(...recentBars20.map((b) => b.high))
+      : lastClose * 1.06;
+    const recentBars5 = bars.slice(-5);
+    const swingLow5 = recentBars5.length > 0
+      ? Math.min(...recentBars5.map((b) => b.low))
+      : swingLow20;
+    const swingHigh5 = recentBars5.length > 0
+      ? Math.max(...recentBars5.map((b) => b.high))
+      : swingHigh20;
+
+    const tick = getIdxTickSize(lastClose);
+    const s1 = roundToIdxTick(Math.max(50, Math.min(lastClose - tick, Math.max(swingLow5, sma20 ?? swingLow5))));
+    const s2 = roundToIdxTick(Math.max(50, Math.min(s1 - tick, swingLow20)));
+    const r1 = roundToIdxTick(Math.max(lastClose + tick, swingHigh5));
+    const r2 = roundToIdxTick(Math.max(r1 + tick * 2, swingHigh20));
+
+    const trailingStopPct = atrPercent != null
+      ? Math.max(2.5, Math.min(8.5, Number((atrPercent * 1.4).toFixed(1))))
+      : 4.5;
+    const trailingStopPrice = roundToIdxTick(Math.max(50, lastClose * (1 - trailingStopPct / 100)));
+
+    const entryLow = roundToIdxTick(Math.max(50, atr14 ? Math.max(s1, lastClose - atr14 * 0.5) : lastClose - tick * 2));
+    const entryHigh = roundToIdxTick(lastClose);
+    const idealBuyZone = `Buy on Weakness / Antre Bid di Rp ${entryLow.toLocaleString("id-ID")} - Rp ${entryHigh.toLocaleString("id-ID")} (Jangan kejar HAKA jika opening besok gap up > +${Math.min(5, Math.max(2.5, Number((atrPercent ?? 3).toFixed(1))))}% di atas closing/VWAP!)`;
+    const supportZone = `S1 Rp ${s1.toLocaleString("id-ID")} | S2 Kuat Rp ${s2.toLocaleString("id-ID")}`;
+    const resistanceZone = `R1 Rp ${r1.toLocaleString("id-ID")} | R2 Kuat Rp ${r2.toLocaleString("id-ID")}`;
+
+    const recent20AvgVol = recentBars20.reduce((sum, b) => sum + (b.volume || 0), 0) / Math.max(1, recentBars20.length);
+    const liveVolRatio = recent20AvgVol > 0 && lastBar ? lastBar.volume / recent20AvgVol : 1.0;
+
+    let holdingHorizonStrategy = "SWING TRADING TERUKUR (3 - 12 Hari Bursa): Hold selama harga penutupan harian tetap bertahan di atas MA20 & S1, geser Trailing Stop bertahap mengikuti puncak harga baru.";
+    if (Math.abs(changePercent) >= 8 || liveVolRatio >= 2.8 || (rsiValue != null && rsiValue >= 70)) {
+      holdingHorizonStrategy = `DAY TRADE / FAST SWING (Volatilitas Tinggi: perubahan ${changePercent}%, volume ${liveVolRatio.toFixed(1)}x rata-rata): Utamakan eksekusi cepat / daily hingga 2-3 hari bursa; WAJIB kunci profit bertahap saat menyentuh area Resistance R1/R2 dan aktifkan Trailing Stop otomatis ${trailingStopPct}% (jangan ditahan tanpa TS jika jebol ke bawah VWAP Rp ${vwapPrice.toLocaleString("id-ID")}!).`;
+    } else if (sma20 != null && lastClose >= sma20 && (rsiValue == null || (rsiValue >= 42 && rsiValue <= 66))) {
+      holdingHorizonStrategy = `SHORT-MEDIUM SWING (5 - 15 Hari Bursa): Tren sehat di atas MA20 (Rp ${Math.round(sma20).toLocaleString("id-ID")}). Bisa di-hold melewati opening harian selama closing tidak patah di bawah S1 (Rp ${s1.toLocaleString("id-ID")}) dengan Trailing Stop ${trailingStopPct}%.`;
     }
 
     const {
@@ -922,8 +998,18 @@ export async function fetchOnDemandStockAnalysis(rawTicker: string): Promise<OnD
       marketCap,
       rsiValue,
       rsiStatus,
+      sma5,
+      sma20,
       sma50,
       ma50Status,
+      atr14,
+      atrPercent,
+      trailingStopPct,
+      trailingStopPrice,
+      supportZone,
+      resistanceZone,
+      idealBuyZone,
+      holdingHorizonStrategy,
       totalBidLots,
       totalOfferLots,
       orderBookSummary,
@@ -1001,17 +1087,24 @@ Data di bawah ini adalah DATA FAKTUAL REAL-TIME dari bursa untuk saham ${analysi
   - Total Volume Perdagangan Terakhir: **${analysis.lastVolumeLots.toLocaleString("id-ID")} Lot** (Nilai Transaksi: ~Rp ${valueBillion} Miliar)
   - Valuasi Fundamental: P/E Ratio: ${analysis.peRatio}x | PBV: ${analysis.pbv}x
 
-2. INDIKATOR TEKNIKAL SERVER (DETERMINISTIK):
+2. INDIKATOR TEKNIKAL SERVER (DETERMINISTIK DARI CANDLE OHLCV NYATA):
   - RSI (14 hari): ${rsiText}
-  - Posisi Tren MA50: ${ma50Text}
+  - Moving Averages: ${analysis.sma5 != null ? `MA5 Rp ${Math.round(analysis.sma5).toLocaleString("id-ID")} | ` : ""}${analysis.sma20 != null ? `MA20 Rp ${Math.round(analysis.sma20).toLocaleString("id-ID")} | ` : ""}MA50: ${ma50Text}
+  - Volatilitas ATR(14): ${analysis.atr14 != null ? `Rp ${analysis.atr14.toLocaleString("id-ID")} (${analysis.atrPercent}% per hari)` : "Menengah (~3%)"}
+  - Area Support & Resistance Historis 20 Hari: ${analysis.supportZone || "-"} || ${analysis.resistanceZone || analysis.targetPriceRange || "-"}
 
-3. RINCIAN ORDER BOOK SPESIFIK (TOTAL BID, TOTAL OFFER & ANTREAN FRAKSI HARGA):
+3. PANDUAN STRATEGI OPENING, BUY LIMIT, TRAILING STOP (TS) & HORIZON HOLD:
+  - Zona Pasang Buy Ideal: ${analysis.idealBuyZone || "-"}
+  - Aturan Pasang Trailing Stop (TS): Pasang **Trailing Stop ${analysis.trailingStopPct ?? 4.5}%** di bawah puncak tertinggi intraday/harian (estimasi awal TS dari closing: **Rp ${(analysis.trailingStopPrice ?? analysis.price).toLocaleString("id-ID")}** per lembar) atau Cut Loss ketat di bawah Support S1/S2.
+  - Horizon Hold vs Daily Trading: ${analysis.holdingHorizonStrategy || "-"}
+
+4. RINCIAN ORDER BOOK SPESIFIK (TOTAL BID, TOTAL OFFER & ANTREAN FRAKSI HARGA):
   - ${analysis.orderBookSummary}
 
-4. RINCIAN BROKER SUMMARY TERAKHIR (KODE BROKER AKUMULASI VS DISTRIBUSI PER ${analysis.lastTradeDate}):
+5. RINCIAN BROKER SUMMARY TERAKHIR (KODE BROKER AKUMULASI VS DISTRIBUSI PER ${analysis.lastTradeDate}):
   - ${analysis.brokerProfileSummary}
 
-5. SENTIMEN BERITA & AKSI KORPORASI TERBARU:
+6. SENTIMEN BERITA & AKSI KORPORASI TERBARU:
 ${headlinesFormatted}`;
 }
 

@@ -1205,12 +1205,6 @@ class _HomePageState extends State<HomePage> {
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
         borderRadius: BorderRadius.circular(AppSpacing.radiusBentoAndItem),
-        border: Border.all(
-          color: isCompleted
-              ? AppColors.incomeGreen.withValues(alpha: 0.35)
-              : AppColors.primaryLight,
-          width: 1.2,
-        ),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppSpacing.radiusBentoAndItem),

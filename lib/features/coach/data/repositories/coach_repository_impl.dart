@@ -442,20 +442,21 @@ class CoachRepositoryImpl implements CoachRepository {
     List<String> missingFields = [];
     ChatMessageStatus messageStatus = ChatMessageStatus.completed;
 
-    // 2. Try remote Edge Function if user is authenticated (Fast path: no redundant sequential pre-queries, 20s timeout)
+    // 2. Try remote Edge Function if user is authenticated (Generous 65s timeout for deep analysis accuracy)
     bool edgeFunctionPersisted = false;
     String? remoteAssistantMsgId;
+    Failure? remoteFailure;
     if (user != null) {
       try {
         final now = DateTime.now();
 
-        // Package at most the last 6 messages scoped strictly to the active conversation
+        // Package up to last 10 messages scoped strictly to the active conversation for multi-turn continuity
         final historyList = _localChatHistory
             .take(_localChatHistory.length - 1)
             .where((m) => m.conversationId == effectiveConvId)
             .toList();
-        final recentHistory = historyList.length > 6
-            ? historyList.sublist(historyList.length - 6)
+        final recentHistory = historyList.length > 10
+            ? historyList.sublist(historyList.length - 10)
             : historyList;
 
         final clientDate =
@@ -493,7 +494,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
         final res = await client.functions
             .invoke('coach-chat', body: invokeBody)
-            .timeout(const Duration(seconds: 25));
+            .timeout(const Duration(seconds: 65));
 
         if (res.data != null && res.data is Map) {
           final data = Map<String, dynamic>.from(res.data as Map);
@@ -536,8 +537,24 @@ class CoachRepositoryImpl implements CoachRepository {
         }
       } catch (e) {
         debugPrint('Coach chat invoke failed: $e');
-        // Fallback to local engine
+        remoteFailure = ServerFailure(
+          'Gagal terhubung ke analisa mendalam AI ($e). Ketuk Coba Lagi agar Coach memproses dengan data live yang valid.',
+        );
       }
+    }
+
+    // For authenticated analytical / stock strategy / prediction queries, do NOT silently mask
+    // Edge Function timeouts/errors with a stale offline stock template — let the user retry cleanly!
+    final lowerMsgCheck = message.toLowerCase();
+    final isCloudRequiredAnalysis = RegExp(
+      r'(?:saham|emiten|ihsg|ipo|rekomendasi|rekomen|strategi|prediksi|prospek|analisa|analisis|trailing\s*stop|stop\s*loss|cut\s*loss|pasang\s*buy|antre\s*beli|order\s*book|broker|\bhold\b|\bts\b|\btp\b|opening|daily|swing)',
+    ).hasMatch(lowerMsgCheck);
+
+    if (user != null &&
+        coachReply.isEmpty &&
+        remoteFailure != null &&
+        isCloudRequiredAnalysis) {
+      return ErrorResult(remoteFailure);
     }
 
     // 3. Contextual Data-Driven Local Engine

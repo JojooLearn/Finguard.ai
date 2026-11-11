@@ -17,7 +17,11 @@ import 'package:finguard/features/transactions/domain/repositories/transaction_r
 
 class _MockSupabaseClient extends Mock implements SupabaseClient {}
 
-class _MockGoTrueClient extends Mock implements GoTrueClient {}
+class _MockAuthClient extends Mock implements GoTrueClient {}
+
+class _MockFunctionsClient extends Mock implements FunctionsClient {}
+
+class _MockUser extends Mock implements User {}
 
 class _MockTxRepo extends Mock implements TransactionRepository {}
 
@@ -35,7 +39,7 @@ void main() {
   setUp(() {
     registerFallbackValue(DateTime.now());
     final mockSupabase = _MockSupabaseClient();
-    final mockAuth = _MockGoTrueClient();
+    final mockAuth = _MockAuthClient();
     when(() => mockSupabase.auth).thenReturn(mockAuth);
     when(() => mockAuth.currentUser).thenReturn(null);
 
@@ -166,6 +170,48 @@ void main() {
       expect(msg.content, isNot(contains('Duit di Target Tabungan')));
       expect(msg.content, isNot(contains('Total Duit & Tabungan')));
       expect(msg.content, isNot(contains('- Dompet Utama: Rp0')));
+    },
+  );
+
+  test(
+    'Authenticated stock strategy failure returns ErrorResult instead of stale hardcoded BBRI/TLKM template',
+    () async {
+      final mockSupabase = _MockSupabaseClient();
+      final mockAuth = _MockAuthClient();
+      final mockFunctions = _MockFunctionsClient();
+      final mockUser = _MockUser();
+
+      when(() => mockUser.id).thenReturn('u_auth_1');
+      when(() => mockSupabase.auth).thenReturn(mockAuth);
+      when(() => mockAuth.currentUser).thenReturn(mockUser);
+      when(() => mockSupabase.functions).thenReturn(mockFunctions);
+      when(
+        () => mockFunctions.invoke(
+          'coach-chat',
+          body: any(named: 'body'),
+        ),
+      ).thenThrow(Exception('Simulated gateway timeout'));
+
+      final authCoachRepo = CoachRepositoryImpl(
+        client: mockSupabase,
+        transactionRepository: _MockTxRepo(),
+        budgetRepository: _MockBudgetRepo(),
+        goalRepository: _MockGoalRepo(),
+        accountRepository: _MockAccountRepo(),
+        debtRepository: _MockDebtRepo(),
+      );
+
+      final res = await authCoachRepo.sendMessage(
+        message:
+            'strategi seperti apa, seperti pasang buynya di mana atu pasang ts nya seperti apa dn sampai kapan saya harus hold saham itu atau cuma bisa main di daily saja?',
+        strictnessLevel: 3,
+      );
+
+      expect(res.isFailure, isTrue);
+      expect(
+        res.failureOrNull?.message,
+        contains('Gagal terhubung ke analisa mendalam AI'),
+      );
     },
   );
 }
