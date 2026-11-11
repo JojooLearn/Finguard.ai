@@ -1470,15 +1470,26 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
   }
 
   Widget _buildMarkdownReportCard(StockAnalysisResult res) {
-    // Hilangkan redudansi disclaimer jika terdapat di akhir markdown
-    String cleanMarkdown = res.markdownAnalysis;
-    cleanMarkdown = cleanMarkdown
+    // Hilangkan redudansi disclaimer jika terdapat di dalam / akhir markdown (termasuk pemisah "---" dan simbol "**")
+    String cleanMarkdown = res.markdownAnalysis
         .replaceAll(
           RegExp(
-            r'((\r?\n)*)#{0,4}\s*(6\.|[0-9]+\.)?\s*⚠️?\s*Disclaimer.*$',
+            r'(?:(?:\r?\n)+\s*[-_—━*]{3,}\s*)?(?:\r?\n)*#{0,4}\s*(?:\d+\.\s*)?(?:[⚠️⚖️ℹ️🚨]+\s*)?[*_]{0,2}Disclaimer\b.*$',
             caseSensitive: false,
             dotAll: true,
           ),
+          '',
+        )
+        .replaceAll(
+          RegExp(
+            r'(?:\r?\n)+\s*\*?\s*Analisis ini dibuat secara independen.*$',
+            caseSensitive: false,
+            dotAll: true,
+          ),
+          '',
+        )
+        .replaceAll(
+          RegExp(r'(?:\r?\n)+\s*[-_—━*]{3,}\s*$'),
           '',
         )
         .trim();
@@ -1683,9 +1694,9 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
         widgets.add(
           Padding(
             padding: const EdgeInsets.only(top: 14, bottom: 6),
-            child: Text(
+            child: _buildSpanText(
               cleanHeader,
-              style: GoogleFonts.urbanist(
+              baseStyle: GoogleFonts.urbanist(
                 fontSize: 15,
                 fontWeight: FontWeight.w800,
                 color: AppColors.primaryDark,
@@ -1776,19 +1787,33 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
           height: 1.48,
         );
 
-    if (!raw.contains('**')) {
+    final tokenRegex = RegExp(r'\*\*\*([^*]+)\*\*\*|\*\*([^*]+)\*\*|\*([^*\n]+)\*');
+    if (!tokenRegex.hasMatch(raw)) {
       return Text(raw, style: style);
     }
 
     final List<TextSpan> spans = [];
-    final parts = raw.split('**');
-    for (int i = 0; i < parts.length; i++) {
-      if (parts[i].isEmpty) continue;
-      final isBold = i % 2 == 1;
+    int lastIndex = 0;
+
+    for (final match in tokenRegex.allMatches(raw)) {
+      if (match.start > lastIndex) {
+        spans.add(
+          TextSpan(
+            text: raw.substring(lastIndex, match.start),
+            style: style,
+          ),
+        );
+      }
+
+      final isBoldItalic = match.group(1) != null;
+      final isBold = match.group(2) != null || isBoldItalic;
+      final isItalic = match.group(3) != null || isBoldItalic;
+      final tokenText =
+          match.group(1) ?? match.group(2) ?? match.group(3) ?? '';
 
       Color? tagColor;
       if (isBold) {
-        final upper = parts[i].toUpperCase();
+        final upper = tokenText.toUpperCase();
         if (upper.contains('BUY') ||
             upper.contains('ARA') ||
             upper.contains('AKUMULASI') ||
@@ -1810,16 +1835,23 @@ class _StockAnalysisViewState extends State<_StockAnalysisView> {
 
       spans.add(
         TextSpan(
-          text: parts[i],
-          style: isBold
-              ? style.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: tagColor ?? AppColors.textPrimary,
-                )
-              : style.copyWith(
-                  fontWeight: FontWeight.w400,
-                  color: AppColors.textSecondary,
-                ),
+          text: tokenText,
+          style: style.copyWith(
+            fontWeight: isBold ? FontWeight.w800 : style.fontWeight,
+            fontStyle: isItalic ? FontStyle.italic : style.fontStyle,
+            color: tagColor ?? (isBold ? AppColors.textPrimary : style.color),
+          ),
+        ),
+      );
+
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < raw.length) {
+      spans.add(
+        TextSpan(
+          text: raw.substring(lastIndex),
+          style: style,
         ),
       );
     }

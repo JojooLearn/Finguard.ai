@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show HttpClient;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/financial_calculator.dart';
 import '../../domain/entities/stock_signal.dart';
@@ -194,14 +195,50 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
     return trending;
   }
 
-  /// Fetches real-time live Top Gainers on Bursa Efek Indonesia (IDX) from TradingView Scanner
+  /// Fetches real-time live Top Gainers on Bursa Efek Indonesia (IDX) from TradingView Scanner.
+  /// Works cleanly across Web (`kIsWeb`, via Edge Function proxy) and Mobile/Desktop.
   Future<List<StockSignalModel>> _fetchLiveTradingViewTopGainers({
     int limit = 5,
   }) async {
-    final httpClient = HttpClient();
-    httpClient.connectionTimeout = const Duration(seconds: 5);
-
+    // 1. Primary cross-platform path: Edge Function server-side TradingView proxy + DB sync
     try {
+      final res = await client.functions
+          .invoke(
+            'stock-signals-webhook',
+            headers: {'X-TV-Secret': 'finguard_tradingview_secret_2026'},
+            body: {'action': 'fetch_top_gainers', 'limit': limit},
+          )
+          .timeout(const Duration(seconds: 7));
+
+      if (res.data is Map && (res.data as Map)['signals'] is List) {
+        final rows = (res.data as Map)['signals'] as List;
+        final List<StockSignalModel> parsed = [];
+        for (int i = 0; i < rows.length; i++) {
+          final row = rows[i];
+          if (row is Map<String, dynamic> || row is Map) {
+            final map = Map<String, dynamic>.from(row as Map);
+            map['id'] ??= 'tv_${map['ticker']}_${DateTime.now().millisecondsSinceEpoch}_$i';
+            parsed.add(StockSignalModel.fromJson(map));
+          }
+        }
+        if (parsed.isNotEmpty) {
+          return parsed;
+        }
+      }
+    } catch (_) {
+      // Fall through to direct socket fetch on native platforms if edge function fails
+    }
+
+    // 2. Native direct fallback ONLY when NOT running on Web (`dart:io` HttpClient throws UnsupportedError on Web)
+    if (kIsWeb) {
+      return [];
+    }
+
+    HttpClient? httpClient;
+    try {
+      httpClient = HttpClient();
+      httpClient.connectionTimeout = const Duration(seconds: 5);
+
       final req = await httpClient.postUrl(
         Uri.parse('https://scanner.tradingview.com/indonesia/scan'),
       );
@@ -290,7 +327,9 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
     } catch (_) {
       // Fallback gracefully on timeout or network error
     } finally {
-      httpClient.close();
+      try {
+        httpClient?.close();
+      } catch (_) {}
     }
     return [];
   }
@@ -328,7 +367,13 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
     final liveSignals = await _fetchLiveTradingViewTopGainers(limit: limit);
 
     if (liveSignals.isNotEmpty) {
-      // 3. Synchronize to Supabase database table `stock_signals`
+      // If Edge Function proxy already persisted rows with DB UUIDs, skip redundant client write
+      final alreadyPersisted = !liveSignals.first.id.startsWith('tv_');
+      if (alreadyPersisted) {
+        return liveSignals;
+      }
+
+      // 3. Synchronize native fallback results to Supabase database table `stock_signals`
       try {
         await client.from('stock_signals').delete().neq('ticker', '');
       } catch (_) {}

@@ -617,11 +617,16 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
       onDemandStockPromptSection = sections.join("\n\n---\n\n");
     }
 
-    // User's strictness level from financial_profiles (DB) is the primary single source of truth.
-    // Fall back to clientStrictness if available, or default to 3.
-    const strictness = (finContext.strictnessLevel != null && Number(finContext.strictnessLevel) > 0)
-      ? Number(finContext.strictnessLevel)
-      : (clientStrictness ? Number(clientStrictness) : 3);
+    // Prefer active client strictness_level (1-5) when provided so personality switches take effect immediately,
+    // otherwise fall back to financial_profiles (DB) or default 3.
+    const parsedClientStrictness =
+      clientStrictness != null && Number(clientStrictness) >= 1 && Number(clientStrictness) <= 5
+        ? Number(clientStrictness)
+        : null;
+    const strictness = parsedClientStrictness ??
+      (finContext.strictnessLevel != null && Number(finContext.strictnessLevel) > 0
+        ? Number(finContext.strictnessLevel)
+        : 3);
 
     // Strictness Persona
     let personaGuideline = "";
@@ -1006,10 +1011,9 @@ ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JE
       * Buka dengan KOTAK RANGKUMAN RADAR IPO (Rekomendasi, Potensi Listing & Bonus Waran, Underwriter, Profil Risiko & Trailing Stop bertingkat -5%, -7%, -9%), lalu uraikan Profil & Kompetitor, Valuasi & Waran, Penggunaan Dana, Track Record UW, Strategi Exit, Simulasi Pooling e-IPO OJK/BEI (Golongan I-IV), dan Rekomendasi Alokasi Modal sesuai uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}).` : ""}` : `   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null. Berikan ringkasan watchlist saham & hitung keterjangkauan lot berdasarkan uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}).`}
 
 10. PERCAKAPAN UMUM, SAPAAN, ATAU CHAT BEBAS (NATURAL CONVERSATION):
-   Contoh: "hai", "halo", "pagi", "lagi apa?", "siapa kamu?", "tips hemat dong", "ceritain cara nabung", dsb.
-   - Bersikaplah luwes, akrab, dan responsif selayaknya ngobrol santai di Gemini.
-   - Balas sapaan dengan hangat, tanyakan kondisi atau rencana pengguna hari ini.
-   - Jawab pertanyaan seputar tips finansial atau obrolan santai tanpa memaksakan template angka.
+   Contoh: "hai", "halo", "pagi", "lagi apa?", "siapa kamu?", "tips hemat dong", "hai tod", "bacot tolol", dsb.
+   - WAJIB membalas sesuai GAYA BICARA / PERSONA LEVEL (${strictness}/5) pada instruksi paling atas! Jika Level >= 4, BALAS DENGAN ROASTING TONGKRONGAN YANG LEBIH PEDAS & KASAR TANPA BASA-BASI MANIS; jika Level <= 2, balas hangat & suportif.
+   - Jawab obrolan tanpa memaksakan template transaksi apabila tidak ada transaksi baru.
    - needs_clarification = false, structured_transaction = null, intent = "general_chat".`;
 
     // --- Build Multi-turn Contents for Dual-Engine Execution (Groq Primary + Gemini Backup) ---
@@ -1044,12 +1048,15 @@ ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JE
     });
 
     const groqPersonaRule = strictness >= 4
-      ? `MODE KRITIS / ROAST (Level ${strictness}/5): Sohib tongkrongan super ceplas-ceplos, tajam, blak-blakan (lu/gue) tanpa basa-basi manis saat pengguna boros. Tetap faktual berbasis angka.`
+      ? `ATURAN KEPRIBADIAN WAJIB — "MODE KRITIS / SAVAGE ROAST TONGKRONGAN TOXIC" (Level ${strictness}/5):
+- PENGGUNA SENGAJA MEMILIH MODE ROASTING EKSTREM! DILARANG KERAS bersikap ramah, sopan, kalem, atau bilang "Halo ${finContext.displayName}!" / "Santai bro"!
+- Jadilah sohib tongkrongan paling nyebelin, bermulut kotor, toksik, ceplas-ceplos (lu/gue, tod, anjing, bangsat, tolol, dongo, gembel) di SETIAP BALASAN—termasuk saat pengguna cuma menyapa ("hai tod"), memaki ("bacot tolol"), maupun bertanya keuangan!
+- Balas sapaan/makian LEBIH PEDAS DAN NYELEKIT sambil menyindir kondisi dompet/uang dinginnya (misal Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Kas Rp${finContext.availableCash.toLocaleString("id-ID")}).`
       : strictness <= 2
-      ? `TEMAN SANTAI & RAMAH (Level ${strictness}/5): Hangat, suportif, akrab seperti teman ngopi (kamu/aku atau santai).`
-      : `TEMAN DISIPLIN & REALISTIS (Level 3/5): Akrab khas tongkrongan, objektif dan tegas mengingatkan kondisi dompet.`;
+      ? `ATURAN KEPRIBADIAN WAJIB — "TEMAN SANTAI & RAMAH" (Level ${strictness}/5): Bersikaplah hangat, lembut, suportif, dan akrab seperti teman ngopi (kamu/aku atau santai). Semangati pengguna dan hindari kata kasar sama sekali.`
+      : `ATURAN KEPRIBADIAN WAJIB — "TEMAN DISIPLIN & REALISTIS" (Level 3/5): Bersikaplah akrab khas tongkrongan namun tetap tegas, objektif, dan realistis mengingatkan anggaran tanpa menghina kasar.`;
 
-    const compactGroqPrompt = `Anda AI Financial Coach FinGuard untuk ${finContext.displayName}. Bahasa Indonesia santai, rapi, maksimal 0-1 emoji, hindari istilah kaku (pakai "uang dingin", "sisa jatah belanja", "boncos", "celengan").
+    const compactGroqPrompt = `Anda AI Financial Coach FinGuard untuk ${finContext.displayName}. Format rapi, maksimal 0-1 emoji, hindari istilah perbankan kaku (pakai "uang dingin", "sisa jatah belanja", "boncos", "celengan").
 ${groqPersonaRule}
 
 DATA KEUANGAN REAL-TIME (${finContext.todayStr}, WIB UTC+7):
@@ -1069,7 +1076,7 @@ ATURAN INTENT:
 1. Pertanyaan saldo/pengeluaran/budget/celengan/utang/estimasi bertahan -> jawab presisi dari data di atas (JANGAN halusinasi dari riwayat chat), structured_transaction = null, needs_clarification = false.
 2. Konsultasi pembelian -> hitung kecukupan uang dingin & kas cair; structured_transaction = null, needs_clarification = false.
 3. Perintah mencatat transaksi nyata ("makan siang 35rb", "gaji masuk 5jt") -> isi structured_transaction; needs_clarification = true HANYA jika nominal lupa disebut. Jangan bilang "sudah tersimpan", arahkan klik Simpan pada kartu konfirmasi.
-4. Sapaan / chat santai -> balas natural & akrab, intent = "general_chat", structured_transaction = null.
+4. Sapaan / chat bebas / makian -> BALAS SEPENUHNYA SESUAI ATURAN KEPRIBADIAN LEVEL ${strictness}/5 DI ATAS (JANGAN melunak jika Level >= 4!), intent = "general_chat", structured_transaction = null.
 
 WAJIB BALAS HANYA SATU OBJEK JSON VALID (tanpa markdown/teks luar):
 {

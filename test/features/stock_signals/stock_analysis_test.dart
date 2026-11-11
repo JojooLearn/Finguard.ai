@@ -2,6 +2,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:finguard/app/di/injection.dart';
 import 'package:finguard/core/errors/failure.dart';
 import 'package:finguard/core/result/result.dart';
 import 'package:finguard/features/auth/domain/entities/user_entity.dart';
@@ -19,6 +20,7 @@ import 'package:finguard/features/stock_signals/domain/repositories/stock_signal
 import 'package:finguard/features/stock_signals/domain/usecases/analyze_stock.dart';
 import 'package:finguard/features/stock_signals/presentation/cubit/stock_analysis_cubit.dart';
 import 'package:finguard/features/stock_signals/presentation/cubit/stock_analysis_state.dart';
+import 'package:finguard/features/stock_signals/presentation/pages/stock_analysis_page.dart';
 import 'package:mocktail/mocktail.dart';
 
 class MockStockSignalRepository extends Mock implements StockSignalRepository {}
@@ -250,5 +252,70 @@ void main() {
       expect(find.text('johdev', skipOffstage: false), findsOneWidget);
       expect(find.textContaining('© 2026 FinGuard', skipOffstage: false), findsOneWidget);
     });
+
+    testWidgets(
+      'StockAnalysisPage renders clean bold/italic formatting without raw asterisks and strips duplicate AI disclaimer',
+      (tester) async {
+        final mockAnalyze = MockAnalyzeStock();
+        final resultWithDuplicateDisclaimer = StockAnalysisResult(
+          ticker: 'TIFA',
+          companyName: 'PT KDB Tifa Finance Tbk',
+          price: 274,
+          currency: 'IDR',
+          lastTradeDate: '2026-11-11',
+          changePercent: -1.4,
+          previousClose: 278,
+          volumeLots: 1200,
+          turnoverIdr: 32880000,
+          vwapPrice: 275,
+          isIpo: false,
+          executiveSummary: sampleAnalysisResult.executiveSummary,
+          financialContext: sampleAnalysisResult.financialContext,
+          technicalData: sampleAnalysisResult.technicalData,
+          bandarmologyData: sampleAnalysisResult.bandarmologyData,
+          newsHeadlines: const ['Likuiditas pasar saham lapis kedua tetap selektif.'],
+          timestamp: DateTime(2026, 11, 11),
+          markdownAnalysis: '''
+### 5. 💼 Rekomendasi Alokasi Saldo
+- **Alokasi Modal**: Fokuskan kas untuk **Dana Darurat** sebelum masuk saham *illiquid* berstatus *downtrend*.
+
+---
+⚠️ **Disclaimer Resmi FinGuard**
+*Analisis ini dibuat secara independen berdasarkan data pasar modal untuk tujuan edukasi.*''',
+        );
+
+        when(() => mockAnalyze('TIFA')).thenAnswer(
+          (_) async => Success(resultWithDuplicateDisclaimer),
+        );
+
+        if (sl.isRegistered<StockAnalysisCubit>()) {
+          sl.unregister<StockAnalysisCubit>();
+        }
+        sl.registerFactory<StockAnalysisCubit>(() => StockAnalysisCubit(mockAnalyze));
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: StockAnalysisPage(initialTicker: 'TIFA'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Embedded duplicate markdown disclaimer MUST be stripped completely
+        expect(find.textContaining('Disclaimer Resmi FinGuard', skipOffstage: false), findsNothing);
+        expect(find.textContaining('Analisis ini dibuat secara independen', skipOffstage: false), findsNothing);
+
+        // Only ONE official footer disclaimer card renders
+        expect(find.textContaining('Disclaimer FinGuard:', skipOffstage: false), findsOneWidget);
+
+        // Inline markdown bold/italic renders cleanly without literal asterisks (*illiquid* -> illiquid)
+        expect(find.textContaining('*illiquid*', findRichText: true, skipOffstage: false), findsNothing);
+        expect(find.textContaining('**Dana Darurat**', findRichText: true, skipOffstage: false), findsNothing);
+        expect(find.textContaining('illiquid', findRichText: true, skipOffstage: false), findsOneWidget);
+
+        if (sl.isRegistered<StockAnalysisCubit>()) {
+          sl.unregister<StockAnalysisCubit>();
+        }
+      },
+    );
   });
 }

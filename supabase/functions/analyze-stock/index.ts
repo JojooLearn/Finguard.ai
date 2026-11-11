@@ -51,7 +51,7 @@ const STOCK_ANALYSIS_SCHEMA = {
     markdown_analysis: {
       type: "STRING",
       description:
-        "Comprehensive institutional analysis in clean Markdown with sections: 1. Valuasi & Fundamental, 2. Analisis Teknikal & Momentum, 3. Bandarmologi & Order Book, 4. Sentimen Berita & Katalis, 5. Strategi FinGuard & Money Management, 6. Disclaimer Risiko",
+        "Comprehensive institutional analysis in clean Markdown with sections: 1. Valuasi & Fundamental, 2. Analisis Teknikal & Momentum, 3. Bandarmologi & Order Book, 4. Sentimen Berita & Katalis, 5. Strategi FinGuard & Money Management (DO NOT add a Disclaimer section)",
     },
   },
   required: [

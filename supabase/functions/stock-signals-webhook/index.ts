@@ -63,6 +63,134 @@ serve(async (req: Request) => {
       );
     }
 
+    // 2b. Live TradingView Top Gainers Fetch & Sync Action (used by Flutter Web & Mobile refresh)
+    if (body?.action === "fetch_top_gainers") {
+      const limit = Math.min(Math.max(Number(body?.limit) || 5, 1), 15);
+      const tvController = new AbortController();
+      const tvTimeout = setTimeout(() => tvController.abort(), 5000);
+      try {
+        const tvRes = await fetch("https://scanner.tradingview.com/indonesia/scan", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          },
+          body: JSON.stringify({
+            filter: [
+              { left: "change", operation: "greater", right: 0 },
+              { left: "volume", operation: "greater", right: 250000 },
+            ],
+            columns: [
+              "name",
+              "close",
+              "change",
+              "volume",
+              "Recommend.All",
+              "description",
+              "RSI",
+              "SMA50",
+            ],
+            sort: { sortBy: "change", sortOrder: "desc" },
+            range: [0, limit],
+          }),
+          signal: tvController.signal,
+        });
+
+        if (!tvRes.ok) {
+          return new Response(
+            JSON.stringify({ error: `TradingView scanner HTTP ${tvRes.status}` }),
+            {
+              status: 502,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        const tvJson = await tvRes.json();
+        const tvRows = Array.isArray(tvJson?.data) ? tvJson.data : [];
+        const now = new Date();
+        const validUntilIso = new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString();
+        const nowIso = now.toISOString();
+
+        const mappedSignals = tvRows.map((entry: any) => {
+          const cols = Array.isArray(entry?.d) ? entry.d : [];
+          const ticker = String(cols[0] || "").toUpperCase();
+          const closePrice = Number(cols[1] || 0);
+          const changePct = Number(cols[2] || 0);
+          const volume = Number(cols[3] || 0);
+          const recAll = cols[4] != null ? Number(cols[4]) : null;
+          const companyName = String(cols[5] || ticker);
+
+          const signalType =
+            recAll != null && recAll >= 0.5
+              ? "STRONG_BUY"
+              : (recAll != null && recAll >= 0.05) || changePct >= 5.0
+                ? "BUY"
+                : "BUY";
+
+          const volFormatted =
+            volume >= 1000000
+              ? `${(volume / 1000000).toFixed(1)}M`
+              : `${Math.round(volume / 1000)}K`;
+          const signStr = changePct >= 0 ? "+" : "";
+          const analysisNotes = `Top Gainer (${signStr}${changePct.toFixed(1)}%) • Vol ${volFormatted} Lot • ${companyName}`;
+
+          return {
+            ticker,
+            signal_type: signalType,
+            price_at_signal: closePrice,
+            timeframe: "1D",
+            analysis_notes: analysisNotes,
+            valid_until: validUntilIso,
+            created_at: nowIso,
+          };
+        }).filter((s: any) => s.ticker.length > 0 && s.price_at_signal > 0);
+
+        if (mappedSignals.length > 0) {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+          const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+          if (supabaseUrl && supabaseServiceRoleKey) {
+            const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+            try {
+              await supabaseAdmin.from("stock_signals").delete().neq("ticker", "");
+              const { data: insertedRows } = await supabaseAdmin
+                .from("stock_signals")
+                .insert(mappedSignals)
+                .select();
+              if (insertedRows && insertedRows.length > 0) {
+                return new Response(
+                  JSON.stringify({ success: true, signals: insertedRows }),
+                  {
+                    status: 200,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                  },
+                );
+              }
+            } catch (_) {}
+          }
+        }
+
+        return new Response(
+          JSON.stringify({ success: true, signals: mappedSignals }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      } catch (tvErr: any) {
+        return new Response(
+          JSON.stringify({ error: tvErr?.message || "Failed to fetch TradingView Top Gainers" }),
+          {
+            status: 502,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      } finally {
+        clearTimeout(tvTimeout);
+      }
+    }
+
     const rawTicker = body.ticker || body.symbol || "";
     const rawSignal = body.signal_type || body.signal || body.action || "";
     const rawPrice = body.price ?? body.price_at_signal;
