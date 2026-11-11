@@ -58,6 +58,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
   String? _lastAutoPlayedMessageId;
 
   bool _hasInputText = false;
+  bool _initializedConfirmedSnapshot = false;
+  final Set<String> _knownConfirmedTxIds = {};
+  Timer? _txPopupTimer;
   bool _isListeningVoice = false;
   bool _isVoiceOrigin = false;
   bool _isUpdatingTextFromStt = false;
@@ -79,6 +82,13 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
     };
     _textController.addListener(_onTextChanged);
     final cubit = context.read<CoachCubit>();
+    if (cubit.state is CoachLoaded) {
+      final loaded = cubit.state as CoachLoaded;
+      _knownConfirmedTxIds.addAll(
+        loaded.messages.where((m) => m.isConfirmed).map((m) => m.id),
+      );
+      _initializedConfirmedSnapshot = true;
+    }
     if (cubit.state is CoachInitial) {
       cubit.loadChatHistory();
     }
@@ -521,6 +531,7 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _txPopupTimer?.cancel();
     _voiceIoService.onTtsStateChanged = null;
     _voiceIoService.stopSpeaking();
     _textController.removeListener(_onTextChanged);
@@ -646,7 +657,49 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
         Expanded(
           child: BlocConsumer<CoachCubit, CoachState>(
             listener: (context, state) {
+              if (state is CoachLoading) {
+                _initializedConfirmedSnapshot = false;
+                _knownConfirmedTxIds.clear();
+                return;
+              }
               if (state is CoachLoaded) {
+                if (!_initializedConfirmedSnapshot) {
+                  _knownConfirmedTxIds.addAll(
+                    state.messages
+                        .where((m) => m.isConfirmed)
+                        .map((m) => m.id),
+                  );
+                  _initializedConfirmedSnapshot = true;
+                } else {
+                  ChatMessageEntity? newestConfirmedTx;
+                  for (final m in state.messages) {
+                    if (m.isConfirmed && !_knownConfirmedTxIds.contains(m.id)) {
+                      _knownConfirmedTxIds.add(m.id);
+                      if (m.structuredPayload != null &&
+                          m.structuredPayload!['amount'] != null) {
+                        newestConfirmedTx = m;
+                      }
+                    }
+                  }
+                  if (newestConfirmedTx != null) {
+                    final payload = newestConfirmedTx.structuredPayload!;
+                    final isEmergencyDeposit =
+                        payload['funding_source'] == 'emergency_fund_deposit' ||
+                        payload['type'] == 'goal_deposit';
+                    final isIncome =
+                        !isEmergencyDeposit && payload['type'] == 'income';
+                    final amount =
+                        (payload['amount'] as num?)?.toDouble() ?? 0.0;
+                    if (!isEmergencyDeposit && amount > 0) {
+                      _showTransactionLottiePopup(
+                        isIncome: isIncome,
+                        amount: amount,
+                        note: payload['note']?.toString(),
+                      );
+                    }
+                  }
+                }
+
                 if (state.confirmFeedbackMessage != null &&
                     state.confirmFeedbackMessage!.isNotEmpty) {
                   ScaffoldMessenger.of(context)
@@ -1724,11 +1777,12 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              width: 36,
-              height: 22,
+              width: 34,
+              height: 34,
               child: Lottie.asset(
-                'assets/animations/scr04_ai_coach_typing.json',
+                'assets/animations/ai_coach_typing.json',
                 repeat: true,
+                fit: BoxFit.contain,
               ),
             ),
             const SizedBox(width: 8),
@@ -2157,5 +2211,157 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
       default:
         return field;
     }
+  }
+
+  /// Displays a brief animated Piggy Bank popup whenever Coach records an
+  /// income (intact piggy) or expense (cracked/breaking piggy) transaction.
+  void _showTransactionLottiePopup({
+    required bool isIncome,
+    required double amount,
+    String? note,
+  }) {
+    if (!mounted) return;
+    _txPopupTimer?.cancel();
+    bool dialogDismissed = false;
+    BuildContext? activeDialogCtx;
+
+    showGeneralDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      barrierDismissible: true,
+      barrierLabel: 'Tutup popup pencatatan transaksi',
+      barrierColor: Colors.black.withValues(alpha: 0.34),
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (dialogCtx, animation, secondaryAnimation) {
+        activeDialogCtx = dialogCtx;
+        return _buildTransactionLottiePopupCard(
+          isIncome: isIncome,
+          amount: amount,
+          note: note,
+        );
+      },
+      transitionBuilder: (ctx, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutBack,
+          reverseCurve: Curves.easeIn,
+        );
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(scale: curved, child: child),
+        );
+      },
+    ).whenComplete(() {
+      dialogDismissed = true;
+      activeDialogCtx = null;
+      _txPopupTimer?.cancel();
+    });
+
+    _txPopupTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (dialogDismissed) return;
+      final ctx = activeDialogCtx;
+      if (ctx != null && ctx.mounted) {
+        Navigator.of(ctx).maybePop();
+      }
+    });
+  }
+
+  Widget _buildTransactionLottiePopupCard({
+    required bool isIncome,
+    required double amount,
+    String? note,
+  }) {
+    final lottieAsset = isIncome
+        ? 'assets/animations/piggy_bank.json'
+        : 'assets/animations/piggy_bank_broken.json';
+    final badgeBg = isIncome ? AppColors.incomeGreenBg : AppColors.expenseRedBg;
+    final badgeFg = isIncome ? AppColors.income : AppColors.expenseRed;
+    final title = isIncome ? 'Pemasukan Tercatat!' : 'Pengeluaran Tercatat!';
+    final subtitle = (note != null && note.trim().isNotEmpty)
+        ? note.trim()
+        : (isIncome
+              ? 'Mantap, celenganmu makin tebal nih!'
+              : 'Aduh, isi celenganmu pecah keluar!');
+    final signedAmount = CurrencyFormatter.formatSigned(
+      amount,
+      isIncome: isIncome,
+    );
+
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: 284,
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceCard,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: badgeBg,
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 152,
+                height: 152,
+                decoration: BoxDecoration(
+                  color: badgeBg.withValues(alpha: 0.55),
+                  shape: BoxShape.circle,
+                ),
+                child: Lottie.asset(
+                  lottieAsset,
+                  repeat: false,
+                  fit: BoxFit.contain,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: badgeBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusPill),
+                ),
+                child: Text(
+                  title,
+                  style: AppTypography.smallCaption.copyWith(
+                    color: badgeFg,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  signedAmount,
+                  style: AppTypography.bigNumber.copyWith(
+                    fontSize: 24,
+                    color: badgeFg,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textSecondary,
+                  fontSize: 12.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

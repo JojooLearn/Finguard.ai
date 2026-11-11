@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:lottie/lottie.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
@@ -9,17 +10,17 @@ import '../../../../core/widgets/app_button.dart';
 import '../../domain/services/voice_io_service.dart';
 
 /// Modal bottom sheet popup that visually represents real-time listening
-/// with authentic sound-reactive waves, mic pulsing orb, and live transcription.
+/// with the reactive Lottie voice animation and live transcription.
 class VoiceListeningModal extends StatefulWidget {
   final VoiceIoService voiceIoService;
   final ValueChanged<String> onSend;
-  final VoidCallback onCancel;
+  final VoidCallback? onCancel;
 
   const VoiceListeningModal({
     super.key,
     required this.voiceIoService,
     required this.onSend,
-    required this.onCancel,
+    this.onCancel,
   });
 
   static Future<void> show({
@@ -44,9 +45,7 @@ class VoiceListeningModal extends StatefulWidget {
   State<VoiceListeningModal> createState() => _VoiceListeningModalState();
 }
 
-class _VoiceListeningModalState extends State<VoiceListeningModal>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _waveController;
+class _VoiceListeningModalState extends State<VoiceListeningModal> {
   final TextEditingController _textEditingController = TextEditingController();
   double _soundLevel = 0.0;
   bool _isListening = false;
@@ -55,11 +54,6 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
   @override
   void initState() {
     super.initState();
-    _waveController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat();
-
     _textEditingController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -76,7 +70,6 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
 
   @override
   void dispose() {
-    _waveController.dispose();
     _textEditingController.dispose();
     widget.voiceIoService.stopListening();
     super.dispose();
@@ -131,7 +124,8 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
         setState(() {
           _isListening = false;
           _soundLevel = 0.0;
-          _statusMessage = errMsg.contains('no_match') || errMsg.contains('timeout')
+          _statusMessage =
+              errMsg.contains('no_match') || errMsg.contains('timeout')
               ? 'Suara belum terdeteksi. Bicara lebih dekat ke mikrofon ya!'
               : 'Status suara: $errMsg';
         });
@@ -142,7 +136,8 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
       setState(() {
         _isListening = false;
         _soundLevel = 0.0;
-        _statusMessage = 'Gagal memulai rekaman. Ketuk mikrofon untuk coba lagi.';
+        _statusMessage =
+            'Gagal memulai rekaman. Ketuk mikrofon untuk coba lagi.';
       });
     }
   }
@@ -166,11 +161,6 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
     widget.onSend(textToSend);
   }
 
-  void _handleCancel() {
-    widget.voiceIoService.cancelListening();
-    widget.onCancel();
-  }
-
   @override
   Widget build(BuildContext context) {
     final hasWords = _textEditingController.text.trim().isNotEmpty;
@@ -192,7 +182,7 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Drag handle pill
+            // Drag handle pill (swipe down or tap outside barrier to close)
             Center(
               child: Container(
                 width: 42,
@@ -205,144 +195,97 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
             ),
             const SizedBox(height: 16),
 
-            // Header Row
+            // Header Status Pill (redundant close 'X' removed — tap outside or drag down to dismiss)
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: _isListening
-                            ? const Color(0xFF10B981)
-                            : AppColors.textSecondary,
-                        shape: BoxShape.circle,
-                        boxShadow: _isListening
-                            ? [
-                                BoxShadow(
-                                  color: const Color(0xFF10B981).withValues(alpha: 0.6),
-                                  blurRadius: 6,
-                                  spreadRadius: 2,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _isListening
-                          ? 'Mendengarkan Suara...'
-                          : (hasWords ? 'Siap Dikirim' : 'Mode Suara FinGuard'),
-                      style: GoogleFonts.urbanist(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: _isListening
-                            ? AppColors.primary
-                            : AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _isListening
+                        ? const Color(0xFF10B981)
+                        : AppColors.textSecondary,
+                    shape: BoxShape.circle,
+                    boxShadow: _isListening
+                        ? [
+                            BoxShadow(
+                              color: const Color(
+                                0xFF10B981,
+                              ).withValues(alpha: 0.6),
+                              blurRadius: 6,
+                              spreadRadius: 2,
+                            ),
+                          ]
+                        : null,
+                  ),
                 ),
-                GestureDetector(
-                  onTap: _handleCancel,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: AppColors.neutral100,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 16,
-                      color: AppColors.textSecondary,
-                    ),
+                const SizedBox(width: 8),
+                Text(
+                  _isListening
+                      ? 'Mendengarkan Suara...'
+                      : (hasWords ? 'Siap Dikirim' : 'Mode Suara FinGuard'),
+                  style: GoogleFonts.urbanist(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _isListening
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
 
-            // Pulsing Mic Orb & Waveform Visualization
-            AnimatedBuilder(
-              animation: _waveController,
-              builder: (context, child) {
-                final wavePhase = _waveController.value * 2 * math.pi;
-                final pulseScale = _isListening
-                    ? 1.0 + (math.sin(wavePhase) * 0.03) + (_soundLevel * 0.12)
-                    : 1.0;
-
-                return Column(
-                  children: [
-                    // Mic Orb (tappable to start/stop listening)
-                    GestureDetector(
-                      onTap: () {
-                        if (_isListening) {
-                          _stopListeningSession();
-                        } else {
-                          _startListeningSession();
-                        }
-                      },
-                      child: Transform.scale(
-                        scale: pulseScale,
-                        child: Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: _isListening
-                                ? AppColors.aiAccentGradient
-                                : const LinearGradient(
-                                    colors: [Color(0xFF94A3B8), Color(0xFF64748B)],
-                                  ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: (_isListening
-                                        ? AppColors.primary
-                                        : const Color(0xFF64748B))
-                                    .withValues(
-                                  alpha: _isListening ? 0.35 : 0.15,
-                                ),
-                                blurRadius: 24,
-                                spreadRadius: _isListening ? 4 : 1,
-                              ),
-                            ],
-                          ),
-                          child: Center(
-                            child: Icon(
-                              _isListening
-                                  ? PhosphorIcons.microphone(PhosphorIconsStyle.fill)
-                                  : PhosphorIcons.microphone(PhosphorIconsStyle.bold),
-                              color: Colors.white,
-                              size: 36,
-                            ),
-                          ),
+            // Sound-Reactive Lottie Voice Animation (assets/animations/voice_listening.json)
+            Column(
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    if (_isListening) {
+                      _stopListeningSession();
+                    } else {
+                      _startListeningSession();
+                    }
+                  },
+                  child: AnimatedScale(
+                    scale: _isListening ? (1.0 + (_soundLevel * 0.16)) : 0.92,
+                    duration: const Duration(milliseconds: 120),
+                    curve: Curves.easeOut,
+                    child: AnimatedOpacity(
+                      opacity: _isListening ? 1.0 : 0.58,
+                      duration: const Duration(milliseconds: 200),
+                      child: SizedBox(
+                        width: 148,
+                        height: 148,
+                        child: Lottie.asset(
+                          'assets/animations/voice_listening.json',
+                          animate: _isListening,
+                          repeat: true,
+                          fit: BoxFit.contain,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      _isListening
-                          ? 'Mendengarkan... Ketuk mic untuk jeda'
-                          : (hasWords
-                              ? 'Selesai bicara. Ketuk mic untuk lanjut bicara'
-                              : 'Ketuk mikrofon untuk mulai bicara'),
-                      style: GoogleFonts.urbanist(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _isListening ? AppColors.primary : AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Dynamic Waveform Bars (Reacts authentically to actual sound level)
-                    _buildWaveformBars(wavePhase),
-                  ],
-                );
-              },
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _isListening
+                      ? 'Mendengarkan... Ketuk animasi untuk jeda'
+                      : (hasWords
+                            ? 'Selesai bicara. Ketuk animasi untuk lanjut bicara'
+                            : 'Ketuk animasi mikrofon untuk mulai bicara'),
+                  style: GoogleFonts.urbanist(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _isListening
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
 
             // Live Dynamic Transcription Card
             Container(
@@ -369,10 +312,16 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                         children: [
                           Icon(
                             hasWords
-                                ? PhosphorIcons.chatCircleDots(PhosphorIconsStyle.fill)
+                                ? PhosphorIcons.chatCircleDots(
+                                    PhosphorIconsStyle.fill,
+                                  )
                                 : (_isListening
-                                    ? PhosphorIcons.waveform(PhosphorIconsStyle.bold)
-                                    : PhosphorIcons.info(PhosphorIconsStyle.bold)),
+                                      ? PhosphorIcons.waveform(
+                                          PhosphorIconsStyle.bold,
+                                        )
+                                      : PhosphorIcons.info(
+                                          PhosphorIconsStyle.bold,
+                                        )),
                             size: 16,
                             color: hasWords || _isListening
                                 ? AppColors.primary
@@ -383,8 +332,8 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                             hasWords
                                 ? 'Teks Terdeteksi (bisa diedit):'
                                 : (_isListening
-                                    ? 'Mendengarkan...'
-                                    : 'Petunjuk:'),
+                                      ? 'Mendengarkan...'
+                                      : 'Petunjuk:'),
                             style: GoogleFonts.urbanist(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
@@ -398,9 +347,14 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                       ),
                       if (_isListening && hasWords)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                            color: const Color(
+                              0xFF10B981,
+                            ).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
@@ -451,7 +405,7 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                       _isListening
                           ? 'Silakan bicara sekarang... Ucapanmu akan langsung tertulis di sini.'
                           : (_statusMessage ??
-                              'Ketuk tombol "Mulai Bicara" untuk merekam ucapanmu.'),
+                                'Ketuk tombol "Mulai Bicara" untuk merekam ucapanmu.'),
                       style: GoogleFonts.urbanist(
                         fontSize: 13.5,
                         color: _isListening
@@ -460,113 +414,37 @@ class _VoiceListeningModalState extends State<VoiceListeningModal>
                         height: 1.45,
                       ),
                     ),
-                    if (_isListening) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        'Contoh: "Catat makan siang 35 ribu" atau "Analisa saham BBCA"',
-                        style: GoogleFonts.urbanist(
-                          fontSize: 11.5,
-                          fontStyle: FontStyle.italic,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
                   ],
                 ],
               ),
             ),
             const SizedBox(height: 20),
 
-            // Action Buttons Row (Clear states: never awkwardly disabled)
-            Row(
-              children: [
-                TextButton(
-                  onPressed: _handleCancel,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  ),
-                  child: Text(
-                    'Batal',
-                    style: GoogleFonts.urbanist(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: AppButton(
-                    label: hasWords
-                        ? 'Kirim Pesan'
-                        : (_isListening ? 'Selesai Bicara' : 'Mulai Bicara'),
-                    onPressed: hasWords
-                        ? _handleSend
-                        : (_isListening ? _stopListeningSession : _startListeningSession),
-                    icon: Icon(
-                      hasWords
-                          ? Icons.arrow_upward_rounded
-                          : (_isListening
-                              ? PhosphorIcons.stop(PhosphorIconsStyle.bold)
-                              : PhosphorIcons.microphone(PhosphorIconsStyle.fill)),
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                ),
-              ],
+            // Primary Action CTA (redundant 'Batal' button removed — tap outside to dismiss)
+            AppButton(
+              label: hasWords
+                  ? 'Kirim Pesan'
+                  : (_isListening ? 'Selesai Bicara' : 'Mulai Bicara'),
+              onPressed: hasWords
+                  ? _handleSend
+                  : (_isListening
+                        ? _stopListeningSession
+                        : _startListeningSession),
+              icon: Icon(
+                hasWords
+                    ? Icons.arrow_upward_rounded
+                    : (_isListening
+                          ? PhosphorIcons.stop(PhosphorIconsStyle.bold)
+                          : PhosphorIcons.microphone(
+                              PhosphorIconsStyle.fill,
+                            )),
+                color: Colors.white,
+                size: 18,
+              ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  /// 7 audio bars that react authentically to real mic sound level
-  Widget _buildWaveformBars(double phase) {
-    const barCount = 7;
-    const baseWeights = [0.4, 0.7, 1.0, 0.85, 1.0, 0.65, 0.35];
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(barCount, (index) {
-        final weight = baseWeights[index];
-        final offset = index * 0.55;
-
-        double barHeight;
-        if (!_isListening) {
-          barHeight = 5.0;
-        } else if (_soundLevel < 0.05) {
-          // Resting breathing bar when mic is listening but user has not spoken yet
-          final breath = (math.sin(phase + offset) + 1.0) / 2.0;
-          barHeight = 6.0 + (breath * 3.0);
-        } else {
-          // Dynamic scaling with true audio volume
-          final soundWave = (math.sin(phase * 1.5 + offset) + 1.0) / 2.0;
-          barHeight = math.max(
-            7.0,
-            8.0 + (_soundLevel * 28.0 * weight) + (soundWave * _soundLevel * 8.0),
-          );
-        }
-
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 3.5),
-          width: 5,
-          height: barHeight,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: _isListening
-                  ? (_soundLevel >= 0.05
-                      ? const [Color(0xFF8B5CF6), Color(0xFF6366F1)]
-                      : const [Color(0xFFA78BFA), Color(0xFF818CF8)])
-                  : const [Color(0xFFCBD5E1), Color(0xFF94A3B8)],
-            ),
-          ),
-        );
-      }),
     );
   }
 }
