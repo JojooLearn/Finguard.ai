@@ -195,9 +195,9 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
     return trending;
   }
 
-  /// Fetches real-time live Top Gainers on Bursa Efek Indonesia (IDX) from TradingView Scanner.
+  /// Fetches real-time live Volume Spike stocks on Bursa Efek Indonesia (IDX) from TradingView Scanner.
   /// Works cleanly across Web (`kIsWeb`, via Edge Function proxy) and Mobile/Desktop.
-  Future<List<StockSignalModel>> _fetchLiveTradingViewTopGainers({
+  Future<List<StockSignalModel>> _fetchLiveTradingViewVolumeSpikes({
     int limit = 5,
   }) async {
     // 1. Primary cross-platform path: Edge Function server-side TradingView proxy + DB sync
@@ -206,7 +206,7 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
           .invoke(
             'stock-signals-webhook',
             headers: {'X-TV-Secret': 'finguard_tradingview_secret_2026'},
-            body: {'action': 'fetch_top_gainers', 'limit': limit},
+            body: {'action': 'fetch_volume_spikes', 'limit': limit},
           )
           .timeout(const Duration(seconds: 7));
 
@@ -250,8 +250,10 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
 
       final payload = jsonEncode({
         'filter': [
-          {'left': 'change', 'operation': 'greater', 'right': 0},
-          {'left': 'volume', 'operation': 'greater', 'right': 250000},
+          {'left': 'relative_volume_10d_calc', 'operation': 'greater', 'right': 1.5},
+          {'left': 'volume', 'operation': 'greater', 'right': 500000},
+          {'left': 'Value.Traded', 'operation': 'greater', 'right': 500000000},
+          {'left': 'close', 'operation': 'greater', 'right': 50},
         ],
         'columns': [
           'name',
@@ -260,10 +262,10 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
           'volume',
           'Recommend.All',
           'description',
-          'RSI',
-          'SMA50',
+          'relative_volume_10d_calc',
+          'Value.Traded',
         ],
-        'sort': {'sortBy': 'change', 'sortOrder': 'desc'},
+        'sort': {'sortBy': 'relative_volume_10d_calc', 'sortOrder': 'desc'},
         'range': [0, limit],
       });
 
@@ -288,14 +290,21 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
           final volume = (cols[3] as num).toDouble();
           final recAll = cols[4] as num?;
           final companyName = (cols[5] as String?) ?? ticker;
+          final relVol = (cols[6] as num?)?.toDouble() ?? 1.0;
 
           StockSignalType signalType;
           if (recAll != null && recAll >= 0.5) {
             signalType = StockSignalType.strongBuy;
-          } else if ((recAll != null && recAll >= 0.05) || changePct >= 5.0) {
+          } else if ((recAll != null && recAll >= 0.05) ||
+              (changePct >= 2.0 && (recAll == null || recAll > -0.1))) {
             signalType = StockSignalType.buy;
+          } else if ((recAll != null && recAll <= -0.5) ||
+              (changePct <= -5.0 && (recAll == null || recAll <= -0.1))) {
+            signalType = StockSignalType.strongSell;
+          } else if ((recAll != null && recAll <= -0.1) || changePct <= -2.0) {
+            signalType = StockSignalType.sell;
           } else {
-            signalType = StockSignalType.buy;
+            signalType = StockSignalType.hold;
           }
 
           final volFormatted = volume >= 1000000
@@ -304,7 +313,7 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
 
           final signStr = changePct >= 0 ? '+' : '';
           final notes =
-              'Top Gainer ($signStr${changePct.toStringAsFixed(1)}%) • Vol $volFormatted Lot • $companyName';
+              'Volume Spike ${relVol.toStringAsFixed(1)}x Avg ($signStr${changePct.toStringAsFixed(1)}%) • Vol $volFormatted • $companyName';
 
           liveSignals.add(
             StockSignalModel(
@@ -341,7 +350,7 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
   }) async {
     final now = DateTime.now();
 
-    // 1. If not forcing refresh, check database cache
+    // 1. If not forcing refresh, check database cache (only reuse if fresh AND from Volume Spike scanner)
     if (!forceRefresh) {
       try {
         final response = await client
@@ -355,16 +364,21 @@ class StockSignalRemoteDataSourceImpl implements StockSignalRemoteDataSource {
                 StockSignalModel.fromJson(json as Map<String, dynamic>))
             .toList();
 
-        // Fresh (< 15 mins) and has enough signals
+        final isVolumeSpikeCache = existing.every(
+          (s) => (s.analysisNotes ?? '').contains('Volume Spike'),
+        );
+
+        // Fresh (< 15 mins), has enough signals, and matches active Volume Spike scanner
         if (existing.length >= limit &&
+            isVolumeSpikeCache &&
             now.difference(existing.first.createdAt).inMinutes < 15) {
           return existing;
         }
       } catch (_) {}
     }
 
-    // 2. Fetch live real-time Top Gainers from TradingView Scanner
-    final liveSignals = await _fetchLiveTradingViewTopGainers(limit: limit);
+    // 2. Fetch live real-time Volume Spike stocks from TradingView Scanner
+    final liveSignals = await _fetchLiveTradingViewVolumeSpikes(limit: limit);
 
     if (liveSignals.isNotEmpty) {
       // If Edge Function proxy already persisted rows with DB UUIDs, skip redundant client write

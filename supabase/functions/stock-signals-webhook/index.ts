@@ -63,12 +63,53 @@ serve(async (req: Request) => {
       );
     }
 
-    // 2b. Live TradingView Top Gainers Fetch & Sync Action (used by Flutter Web & Mobile refresh)
-    if (body?.action === "fetch_top_gainers") {
+    // 2b. Live TradingView Volume Spike / Scanner Fetch & Sync Action (used by Flutter Web & Mobile refresh)
+    if (body?.action === "fetch_volume_spikes" || body?.action === "fetch_top_gainers") {
+      const isVolumeSpike = body?.action === "fetch_volume_spikes";
       const limit = Math.min(Math.max(Number(body?.limit) || 5, 1), 15);
       const tvController = new AbortController();
       const tvTimeout = setTimeout(() => tvController.abort(), 5000);
       try {
+        const scannerPayload = isVolumeSpike
+          ? {
+              filter: [
+                { left: "relative_volume_10d_calc", operation: "greater", right: 1.5 },
+                { left: "volume", operation: "greater", right: 500000 },
+                { left: "Value.Traded", operation: "greater", right: 500000000 },
+                { left: "close", operation: "greater", right: 50 },
+              ],
+              columns: [
+                "name",
+                "close",
+                "change",
+                "volume",
+                "Recommend.All",
+                "description",
+                "relative_volume_10d_calc",
+                "Value.Traded",
+              ],
+              sort: { sortBy: "relative_volume_10d_calc", sortOrder: "desc" },
+              range: [0, limit],
+            }
+          : {
+              filter: [
+                { left: "change", operation: "greater", right: 0 },
+                { left: "volume", operation: "greater", right: 250000 },
+              ],
+              columns: [
+                "name",
+                "close",
+                "change",
+                "volume",
+                "Recommend.All",
+                "description",
+                "RSI",
+                "SMA50",
+              ],
+              sort: { sortBy: "change", sortOrder: "desc" },
+              range: [0, limit],
+            };
+
         const tvRes = await fetch("https://scanner.tradingview.com/indonesia/scan", {
           method: "POST",
           headers: {
@@ -76,24 +117,7 @@ serve(async (req: Request) => {
             "User-Agent":
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
           },
-          body: JSON.stringify({
-            filter: [
-              { left: "change", operation: "greater", right: 0 },
-              { left: "volume", operation: "greater", right: 250000 },
-            ],
-            columns: [
-              "name",
-              "close",
-              "change",
-              "volume",
-              "Recommend.All",
-              "description",
-              "RSI",
-              "SMA50",
-            ],
-            sort: { sortBy: "change", sortOrder: "desc" },
-            range: [0, limit],
-          }),
+          body: JSON.stringify(scannerPayload),
           signal: tvController.signal,
         });
 
@@ -121,20 +145,36 @@ serve(async (req: Request) => {
           const volume = Number(cols[3] || 0);
           const recAll = cols[4] != null ? Number(cols[4]) : null;
           const companyName = String(cols[5] || ticker);
+          const relVol = isVolumeSpike && cols[6] != null ? Number(cols[6]) : 1.0;
 
-          const signalType =
-            recAll != null && recAll >= 0.5
-              ? "STRONG_BUY"
-              : (recAll != null && recAll >= 0.05) || changePct >= 5.0
-                ? "BUY"
+          let signalType = "HOLD";
+          if (isVolumeSpike) {
+            if (recAll != null && recAll >= 0.5) {
+              signalType = "STRONG_BUY";
+            } else if ((recAll != null && recAll >= 0.05) || (changePct >= 2.0 && (recAll == null || recAll > -0.1))) {
+              signalType = "BUY";
+            } else if ((recAll != null && recAll <= -0.5) || (changePct <= -5.0 && (recAll == null || recAll <= -0.1))) {
+              signalType = "STRONG_SELL";
+            } else if ((recAll != null && recAll <= -0.1) || changePct <= -2.0) {
+              signalType = "SELL";
+            } else {
+              signalType = "HOLD";
+            }
+          } else {
+            signalType =
+              recAll != null && recAll >= 0.5
+                ? "STRONG_BUY"
                 : "BUY";
+          }
 
           const volFormatted =
             volume >= 1000000
               ? `${(volume / 1000000).toFixed(1)}M`
               : `${Math.round(volume / 1000)}K`;
           const signStr = changePct >= 0 ? "+" : "";
-          const analysisNotes = `Top Gainer (${signStr}${changePct.toFixed(1)}%) • Vol ${volFormatted} Lot • ${companyName}`;
+          const analysisNotes = isVolumeSpike
+            ? `Volume Spike ${relVol.toFixed(1)}x Avg (${signStr}${changePct.toFixed(1)}%) • Vol ${volFormatted} • ${companyName}`
+            : `Top Gainer (${signStr}${changePct.toFixed(1)}%) • Vol ${volFormatted} Lot • ${companyName}`;
 
           return {
             ticker,

@@ -913,7 +913,7 @@ class StockSignalDashboardCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              'Fitur ini menyajikan sinyal teknikal (BUY, HOLD, SELL) yang dikirimkan secara otomatis dari webhook TradingView Strategy. Data ini berfungsi sebagai referensi pembantu untuk memantau momentum saham.',
+              'Fitur ini menampilkan 5 saham BEI dengan Volume Spike (lonjakan volume transaksi relatif tertinggi vs rata-rata 10 hari) secara real-time dari TradingView beserta indikator sinyal teknikalnya. Tarik ke bawah untuk memperbarui daftar terbaru.',
               style: AppTypography.body.copyWith(
                 fontSize: 13,
                 height: 1.45,
