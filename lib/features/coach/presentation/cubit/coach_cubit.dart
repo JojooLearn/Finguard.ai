@@ -367,6 +367,12 @@ class CoachCubit extends Cubit<CoachState> {
     final currentState = state as CoachLoaded;
     final payload = message.structuredPayload;
     if (payload == null || payload['amount'] == null) return;
+    if (message.isConfirmed ||
+        currentState.confirmingMessageId == message.id ||
+        payload['rejected'] == true ||
+        payload['cancelled'] == true) {
+      return;
+    }
 
     emit(currentState.copyWith(confirmingMessageId: message.id));
 
@@ -403,39 +409,50 @@ class CoachCubit extends Cubit<CoachState> {
         clientRequestId: clientReqId,
       );
 
-      txResult.fold(
-        (createdTx) async {
-          // Persist confirmed status in chat_messages table
-          try {
-            await coachRepository.updateMessageMetadata(
-              messageId: message.id,
-              metadata: {
-                ...?message.structuredPayload,
-                'confirmed': true,
-                'transaction_id': createdTx.id,
-              },
+      final createdTx = txResult.fold((tx) => tx, (_) => null);
+      if (createdTx != null) {
+        final confirmedMetadata = <String, dynamic>{
+          ...?message.structuredPayload,
+          'confirmed': true,
+          'transaction_id': createdTx.id,
+        };
+
+        // Persist confirmed status in chat_messages table before finishing
+        try {
+          await coachRepository.updateMessageMetadata(
+            messageId: message.id,
+            metadata: confirmedMetadata,
+          );
+        } catch (_) {}
+
+        final latestState = state is CoachLoaded
+            ? (state as CoachLoaded)
+            : currentState;
+        final updatedMessages = latestState.messages.map((m) {
+          if (m.id == message.id) {
+            return m.copyWith(
+              isConfirmed: true,
+              structuredPayload: confirmedMetadata,
             );
-          } catch (_) {}
+          }
+          return m;
+        }).toList();
 
-          // Update the message state to confirmed
-          final updatedMessages = currentState.messages.map((m) {
-            if (m.id == message.id) {
-              return m.copyWith(isConfirmed: true);
-            }
-            return m;
-          }).toList();
-
-          emit(currentState.copyWith(
-            messages: updatedMessages,
-            clearConfirming: true,
-          ));
-        },
-        (failure) {
-          emit(currentState.copyWith(clearConfirming: true));
-        },
-      );
+        emit(latestState.copyWith(
+          messages: updatedMessages,
+          clearConfirming: true,
+        ));
+      } else {
+        final latestState = state is CoachLoaded
+            ? (state as CoachLoaded)
+            : currentState;
+        emit(latestState.copyWith(clearConfirming: true));
+      }
     } catch (_) {
-      emit(currentState.copyWith(clearConfirming: true));
+      final latestState = state is CoachLoaded
+          ? (state as CoachLoaded)
+          : currentState;
+      emit(latestState.copyWith(clearConfirming: true));
     }
   }
 
@@ -443,16 +460,17 @@ class CoachCubit extends Cubit<CoachState> {
   Future<void> cancelExtractedTransaction(ChatMessageEntity message) async {
     if (state is! CoachLoaded) return;
     final currentState = state as CoachLoaded;
+    if (message.isConfirmed) return;
+
+    final rejectedMetadata = <String, dynamic>{
+      ...?message.structuredPayload,
+      'rejected': true,
+      'cancelled': true,
+    };
 
     final updatedMessages = currentState.messages.map((m) {
       if (m.id == message.id) {
-        return m.copyWith(
-          structuredPayload: {
-            ...?m.structuredPayload,
-            'rejected': true,
-            'cancelled': true,
-          },
-        );
+        return m.copyWith(structuredPayload: rejectedMetadata);
       }
       return m;
     }).toList();
@@ -462,11 +480,7 @@ class CoachCubit extends Cubit<CoachState> {
     try {
       await coachRepository.updateMessageMetadata(
         messageId: message.id,
-        metadata: {
-          ...?message.structuredPayload,
-          'rejected': true,
-          'cancelled': true,
-        },
+        metadata: rejectedMetadata,
       );
     } catch (_) {}
   }

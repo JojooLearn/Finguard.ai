@@ -182,7 +182,6 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<ProfileRepository>(
     () => ProfileRepositoryImpl(
       client: sl<SupabaseClient>(),
-      budgetRepository: sl<BudgetRepository>(),
       authRepository: sl<AuthRepository>(),
     ),
   );

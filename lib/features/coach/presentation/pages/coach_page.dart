@@ -19,8 +19,10 @@ import '../../../../core/widgets/app_button.dart';
 import '../../domain/entities/chat_message_entity.dart';
 import '../../domain/services/receipt_scanner_service.dart';
 import '../../domain/services/voice_io_service.dart';
+import '../../../budgets/presentation/cubit/budget_cubit.dart';
 import '../../../profile/presentation/cubit/profile_cubit.dart';
 import '../../../profile/presentation/cubit/profile_state.dart';
+import '../../../transactions/presentation/cubit/transaction_cubit.dart';
 import '../cubit/coach_cubit.dart';
 import '../cubit/coach_state.dart';
 import '../widgets/voice_listening_modal.dart';
@@ -1894,9 +1896,18 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
                         behavior: HitTestBehavior.opaque,
                         onTap: isConfirming
                             ? null
-                            : () => context
-                                  .read<CoachCubit>()
-                                  .confirmExtractedTransaction(message),
+                            : () async {
+                                await context
+                                    .read<CoachCubit>()
+                                    .confirmExtractedTransaction(message);
+                                if (!context.mounted) return;
+                                try {
+                                  context.read<TransactionCubit>().loadTransactions();
+                                } catch (_) {}
+                                try {
+                                  context.read<BudgetCubit>().loadBudgets();
+                                } catch (_) {}
+                              },
                         child: Container(
                           height: 40,
                           decoration: BoxDecoration(

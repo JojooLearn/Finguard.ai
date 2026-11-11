@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
@@ -869,9 +868,7 @@ class _BudgetPageState extends State<BudgetPage> {
                   ),
                 ),
 
-                const SizedBox(height: 14),
-
-                // Blueprint 50/30/20 Sync Card & Financial Allocation Guardrail
+                // Financial Allocation Guardrail
                 BlocBuilder<ProfileCubit, ProfileState>(
                   builder: (context, profileState) {
                     double income = 0;
@@ -888,134 +885,75 @@ class _BudgetPageState extends State<BudgetPage> {
                     final allocatedPct =
                         income > 0 ? ((totalLimit / income) * 100).round() : 0;
 
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (isOverIncome || isSqueezingSavings) ...[
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: isOverIncome
-                                  ? AppColors.expenseRedBg
-                                  : AppColors.warningOrangeBg,
-                              borderRadius: BorderRadius.circular(
-                                AppSpacing.radiusBentoAndItem,
-                              ),
-                              border: Border.all(
-                                color: (isOverIncome
-                                        ? AppColors.expenseRed
-                                        : AppColors.warningOrange)
-                                    .withValues(alpha: 0.35),
-                              ),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  PhosphorIcons.warningCircle(
-                                    PhosphorIconsStyle.fill,
-                                  ),
-                                  color: isOverIncome
-                                      ? AppColors.expenseRed
-                                      : AppColors.warningOrange,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        isOverIncome
-                                            ? 'Over-Alokasi: Jatah Melebihi Gaji ($allocatedPct%)!'
-                                            : 'Alokasi Menggerus Tabungan 20% ($allocatedPct% Gaji)',
-                                        style: AppTypography.itemTitle.copyWith(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w700,
-                                          color: isOverIncome
-                                              ? AppColors.expenseRed
-                                              : const Color(0xFFB45309),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        isOverIncome
-                                            ? 'Total rencana jatah belanja (${CurrencyFormatter.format(totalLimit)}) melampaui pemasukan bulananmu (${CurrencyFormatter.format(income)}) sebesar ${CurrencyFormatter.format(overIncomeDiff)}. Kurangi jatah kategori atau sinkronkan ulang ke 50/30/20 agar tidak defisit.'
-                                            : 'Total jatah belanja (${CurrencyFormatter.format(totalLimit)}) melewati batas ideal 80% gaji (${CurrencyFormatter.format(idealCap)}). Jatah tabungan rutinmu bulan ini menyempit tinggal ${CurrencyFormatter.format(remainingForSavings)}.',
-                                        style:
-                                            AppTypography.captionText.copyWith(
-                                          fontSize: 11.5,
-                                          height: 1.35,
-                                          color: AppColors.textPrimary
-                                              .withValues(alpha: 0.85),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                    if (!isOverIncome && !isSqueezingSavings) {
+                      return const SizedBox.shrink();
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: isOverIncome
+                              ? AppColors.expenseRedBg
+                              : AppColors.warningOrangeBg,
+                          borderRadius: BorderRadius.circular(
+                            AppSpacing.radiusBentoAndItem,
                           ),
-                        ],
-                        GestureDetector(
-                          onTap: () => context.push('/blueprint'),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryLight,
-                              borderRadius: BorderRadius.circular(
-                                AppSpacing.radiusBentoAndItem,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  PhosphorIcons.sparkle(),
-                                  color: AppColors.primary,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Peta Keuangan 50/30/20 Otomatis',
-                                        style: AppTypography.itemTitle.copyWith(
-                                          fontSize: 13,
-                                          color: AppColors.primaryDark,
-                                        ),
-                                      ),
-                                      Text(
-                                        income > 0
-                                            ? 'Standar ideal 80% belanja: ${CurrencyFormatter.format(idealCap)} dari gaji ${CurrencyFormatter.format(income)}'
-                                            : 'Atur ulang formula alokasi anggaran bulanan',
-                                        style:
-                                            AppTypography.captionText.copyWith(
-                                          fontSize: 11,
-                                          color: AppColors.primaryDark
-                                              .withValues(alpha: 0.8),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Icon(
-                                  PhosphorIcons.caretRight(),
-                                  color: AppColors.primary,
-                                  size: 16,
-                                ),
-                              ],
-                            ),
+                          border: Border.all(
+                            color: (isOverIncome
+                                    ? AppColors.expenseRed
+                                    : AppColors.warningOrange)
+                                .withValues(alpha: 0.35),
                           ),
                         ),
-                      ],
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              PhosphorIcons.warningCircle(
+                                PhosphorIconsStyle.fill,
+                              ),
+                              color: isOverIncome
+                                  ? AppColors.expenseRed
+                                  : AppColors.warningOrange,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isOverIncome
+                                        ? 'Over-Alokasi: Jatah Melebihi Gaji ($allocatedPct%)!'
+                                        : 'Alokasi Menggerus Tabungan 20% ($allocatedPct% Gaji)',
+                                    style: AppTypography.itemTitle.copyWith(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: isOverIncome
+                                          ? AppColors.expenseRed
+                                          : const Color(0xFFB45309),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    isOverIncome
+                                        ? 'Total rencana jatah belanja (${CurrencyFormatter.format(totalLimit)}) melampaui pemasukan bulananmu (${CurrencyFormatter.format(income)}) sebesar ${CurrencyFormatter.format(overIncomeDiff)}. Kurangi jatah kategori agar tidak defisit.'
+                                        : 'Total jatah belanja (${CurrencyFormatter.format(totalLimit)}) melewati batas ideal 80% gaji (${CurrencyFormatter.format(idealCap)}). Jatah tabungan rutinmu bulan ini menyempit tinggal ${CurrencyFormatter.format(remainingForSavings)}.',
+                                    style: AppTypography.captionText.copyWith(
+                                      fontSize: 11.5,
+                                      height: 1.35,
+                                      color: AppColors.textPrimary
+                                          .withValues(alpha: 0.85),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -1235,7 +1173,7 @@ class _BudgetPageState extends State<BudgetPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Terapkan formula 50/30/20 langsung dari pemasukan bulananmu agar pengeluaran terkawal.',
+              'Tambahkan pos jatah belanja per kategori agar pengeluaran bulananmu tetap terkawal.',
               textAlign: TextAlign.center,
               style: AppTypography.captionText.copyWith(
                 color: AppColors.textSecondary,
@@ -1243,8 +1181,8 @@ class _BudgetPageState extends State<BudgetPage> {
             ),
             const SizedBox(height: 16),
             AppButton(
-              label: 'Buat Batas Belanja Otomatis (50/30/20)',
-              onPressed: () => context.push('/blueprint'),
+              label: 'Tambah Pos Jatah Belanja',
+              onPressed: () => _showAddCategoryBudgetSheet(context),
             ),
           ],
         ),

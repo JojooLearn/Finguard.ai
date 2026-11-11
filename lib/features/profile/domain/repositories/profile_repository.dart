@@ -12,11 +12,6 @@ abstract class ProfileRepository {
     int? strictnessLevel,
   });
 
-  Future<Result<void>> recalculateBlueprintFromIncome({
-    required double monthlyIncome,
-    int? strictnessLevel,
-  });
-
   void clearCache();
 }
 

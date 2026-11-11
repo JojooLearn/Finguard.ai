@@ -178,5 +178,103 @@ void main() {
             )).called(1);
       },
     );
+
+    blocTest<CoachCubit, CoachState>(
+      'persists confirmed metadata in coachRepository and prevents duplicate confirm',
+      build: () {
+        final mockCreatedTx = TransactionEntity(
+          id: 'tx-persist-1',
+          userId: 'user-1',
+          transactionType: TransactionType.expense,
+          amount: 10000,
+          currencyCode: 'IDR',
+          transactionDate: DateTime.now(),
+          source: TransactionSource.chat,
+          status: TransactionStatus.confirmed,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+
+        when(() => mockTxRepo.createTransaction(
+              amount: any(named: 'amount'),
+              type: any(named: 'type'),
+              transactionDate: any(named: 'transactionDate'),
+              note: any(named: 'note'),
+              source: any(named: 'source'),
+              clientRequestId: any(named: 'clientRequestId'),
+            )).thenAnswer((_) async => Success(mockCreatedTx));
+
+        when(() => mockCoachRepo.updateMessageMetadata(
+              messageId: any(named: 'messageId'),
+              metadata: any(named: 'metadata'),
+            )).thenAnswer((_) async {});
+
+        return CoachCubit(
+          coachRepository: mockCoachRepo,
+          transactionRepository: mockTxRepo,
+        );
+      },
+      seed: () => CoachLoaded(messages: [
+        ChatMessageEntity(
+          id: '11111111-1111-4111-8111-111111111111',
+          conversationId: 'conv-1',
+          senderType: ChatSenderType.assistant,
+          content: 'Rp10.000 buat makan?',
+          createdAt: DateTime.now(),
+          structuredPayload: const {
+            'amount': 10000.0,
+            'type': 'expense',
+            'note': 'Makan siang',
+          },
+        ),
+      ]),
+      act: (cubit) async {
+        final msg = (cubit.state as CoachLoaded).messages.first;
+        await cubit.confirmExtractedTransaction(msg);
+        // Second call with updated confirmed message must be a no-op
+        final confirmedMsg = (cubit.state as CoachLoaded).messages.first;
+        await cubit.confirmExtractedTransaction(confirmedMsg);
+      },
+      expect: () => [
+        isA<CoachLoaded>().having(
+          (s) => s.confirmingMessageId,
+          'confirmingMessageId',
+          '11111111-1111-4111-8111-111111111111',
+        ),
+        isA<CoachLoaded>()
+            .having((s) => s.confirmingMessageId, 'confirmingMessageId', null)
+            .having((s) => s.messages.first.isConfirmed, 'isConfirmed', true)
+            .having(
+              (s) => s.messages.first.structuredPayload?['confirmed'],
+              'metadata confirmed',
+              true,
+            )
+            .having(
+              (s) => s.messages.first.structuredPayload?['transaction_id'],
+              'metadata transaction_id',
+              'tx-persist-1',
+            ),
+      ],
+      verify: (_) {
+        verify(() => mockTxRepo.createTransaction(
+              amount: 10000.0,
+              type: TransactionType.expense,
+              transactionDate: any(named: 'transactionDate'),
+              note: 'Makan siang',
+              source: TransactionSource.chat,
+              clientRequestId: any(named: 'clientRequestId'),
+            )).called(1);
+        verify(() => mockCoachRepo.updateMessageMetadata(
+              messageId: '11111111-1111-4111-8111-111111111111',
+              metadata: {
+                'amount': 10000.0,
+                'type': 'expense',
+                'note': 'Makan siang',
+                'confirmed': true,
+                'transaction_id': 'tx-persist-1',
+              },
+            )).called(1);
+      },
+    );
   });
 }

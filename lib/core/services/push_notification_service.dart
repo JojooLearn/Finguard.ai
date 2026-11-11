@@ -193,7 +193,7 @@ class PushNotificationService {
           appRouter.push('/transactions');
           break;
         case 'blueprint':
-          appRouter.push('/blueprint');
+          appRouter.push('/budget');
           break;
         default:
           appRouter.push('/notifications');

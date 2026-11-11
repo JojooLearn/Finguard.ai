@@ -228,7 +228,7 @@ class NotificationHelper {
         type: NotificationType.info,
         category: NotificationCategory.systemInfo,
         badgeText: 'PETA 50/30/20',
-        route: '/blueprint',
+        route: '/budget',
       ));
 
       // Monthly review reminder: only show if user has real transactions or account is >= 7 days old

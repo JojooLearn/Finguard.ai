@@ -61,41 +61,5 @@ class ProfileCubit extends Cubit<ProfileState> {
       },
     );
   }
-
-  Future<bool> recalculateBlueprint({
-    required double monthlyIncome,
-    int? strictnessLevel,
-  }) async {
-    final current = state is ProfileLoaded ? (state as ProfileLoaded).profile : null;
-    if (current != null) {
-      emit(ProfileUpdating(current));
-    } else {
-      emit(const ProfileLoading());
-    }
-
-    final result = await repository.recalculateBlueprintFromIncome(
-      monthlyIncome: monthlyIncome,
-      strictnessLevel: strictnessLevel,
-    );
-
-    return result.fold(
-      (_) async {
-        final profileRes = await repository.getProfile();
-        profileRes.fold(
-          (p) => emit(ProfileLoaded(p)),
-          (f) => emit(ProfileError(f.message)),
-        );
-        return true;
-      },
-      (failure) {
-        if (current != null) {
-          emit(ProfileLoaded(current));
-        } else {
-          emit(ProfileError(failure.message));
-        }
-        return false;
-      },
-    );
-  }
 }
 

@@ -16,7 +16,6 @@ import '../../features/monthly_review/presentation/pages/monthly_review_page.dar
 import '../../features/notifications/presentation/pages/notification_page.dart';
 import '../../features/onboarding/presentation/cubit/onboarding_cubit.dart';
 import '../../features/onboarding/presentation/pages/onboarding_page.dart';
-import '../../features/profile/presentation/pages/blueprint_page.dart';
 import '../../features/profile/presentation/pages/edit_profile_page.dart';
 import '../../features/splash/presentation/pages/splash_page.dart';
 import '../../features/stock_signals/presentation/pages/stock_analysis_page.dart';
@@ -154,10 +153,6 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/profile/edit',
       builder: (context, state) => const EditProfilePage(),
-    ),
-    GoRoute(
-      path: '/blueprint',
-      builder: (context, state) => const BlueprintPage(),
     ),
     GoRoute(
       path: '/notifications',

@@ -145,10 +145,13 @@ serve(async (req) => {
       if (existingRequest.status === "completed" && existingRequest.result_reference) {
         const cachedReply = existingRequest.result_reference.reply || "";
         const cachedSource = existingRequest.result_reference.source_engine || "gemini";
+        const cachedAstId = existingRequest.assistant_message_id || null;
         return jsonResponse({
           success: true,
-          conversation_id: conversation_id || null,
+          conversation_id: conversation_id || existingRequest.conversation_id || null,
+          assistant_message_id: cachedAstId,
           message: {
+            id: cachedAstId,
             role: "assistant",
             content: cachedReply,
             source_engine: cachedSource,
@@ -436,43 +439,65 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
         };
       }
 
-      // Save user message to database
+      // Save user message & AI reply to database (capture real UUIDs for client confirmation sync)
+      let receiptUserMsgId: string | null = null;
+      let receiptAstMsgId: string | null = null;
       if (activeConversationId) {
         try {
-          await supabaseClient.from("chat_messages").insert({
-            conversation_id: activeConversationId,
-            user_id: user.id,
-            role: "user",
-            content: message && message.trim().length > 0 ? message : "📷 Scan Foto Nota Belanja",
-            message_status: "completed",
-            metadata: { receipt_path: receipt_path || null },
-          });
+          const { data: rUMsg } = await supabaseClient
+            .from("chat_messages")
+            .insert({
+              conversation_id: activeConversationId,
+              user_id: user.id,
+              role: "user",
+              content: message && message.trim().length > 0 ? message : "📷 Scan Foto Nota Belanja",
+              message_status: "completed",
+              metadata: { receipt_path: receipt_path || null },
+            })
+            .select("id")
+            .maybeSingle();
+          if (rUMsg) receiptUserMsgId = rUMsg.id;
         } catch (_) {
-          await supabaseClient.from("chat_messages").insert({
-            conversation_id: activeConversationId,
-            user_id: user.id,
-            role: "user",
-            content: message && message.trim().length > 0 ? message : "📷 Scan Foto Nota Belanja",
-          });
+          const { data: rUMsgFallback } = await supabaseClient
+            .from("chat_messages")
+            .insert({
+              conversation_id: activeConversationId,
+              user_id: user.id,
+              role: "user",
+              content: message && message.trim().length > 0 ? message : "📷 Scan Foto Nota Belanja",
+            })
+            .select("id")
+            .maybeSingle();
+          if (rUMsgFallback) receiptUserMsgId = rUMsgFallback.id;
         }
 
-        // Save AI reply message to database
         try {
-          await supabaseClient.from("chat_messages").insert({
-            conversation_id: activeConversationId,
-            user_id: user.id,
-            role: "assistant",
-            content: replyText,
-            message_status: "completed",
-            metadata: structuredTx || {},
-          });
+          const { data: rAMsg } = await supabaseClient
+            .from("chat_messages")
+            .insert({
+              conversation_id: activeConversationId,
+              user_id: user.id,
+              role: "assistant",
+              content: replyText,
+              message_status: "completed",
+              metadata: structuredTx || {},
+            })
+            .select("id")
+            .maybeSingle();
+          if (rAMsg) receiptAstMsgId = rAMsg.id;
         } catch (_) {
-          await supabaseClient.from("chat_messages").insert({
-            conversation_id: activeConversationId,
-            user_id: user.id,
-            role: "assistant",
-            content: replyText,
-          });
+          const { data: rAMsgFallback } = await supabaseClient
+            .from("chat_messages")
+            .insert({
+              conversation_id: activeConversationId,
+              user_id: user.id,
+              role: "assistant",
+              content: replyText,
+              metadata: structuredTx || {},
+            })
+            .select("id")
+            .maybeSingle();
+          if (rAMsgFallback) receiptAstMsgId = rAMsgFallback.id;
         }
       }
 
@@ -481,6 +506,8 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
         .from("ai_requests")
         .update({
           status: "completed",
+          user_message_id: receiptUserMsgId,
+          assistant_message_id: receiptAstMsgId,
           result_reference: {
             reply: replyText,
             source_engine: "gemini",
@@ -497,7 +524,9 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
       return jsonResponse({
         success: true,
         conversation_id: activeConversationId,
+        assistant_message_id: receiptAstMsgId,
         message: {
+          id: receiptAstMsgId,
           role: "assistant",
           content: replyText,
           source_engine: "gemini",
@@ -1194,6 +1223,9 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
     const assistantMetadata: Record<string, unknown> = structuredTxPayload
       ? { ...structuredTxPayload, source_engine: sourceEngine }
       : { source_engine: sourceEngine };
+    if (needsClarification) {
+      assistantMetadata.needs_clarification = true;
+    }
 
     const resultRef: Record<string, unknown> = {
       reply: replyText,
@@ -1246,7 +1278,7 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
             user_id: user.id,
             role: "assistant",
             content: replyText,
-            message_status: needsClarification ? "needs_clarification" : "completed",
+            message_status: "completed",
             metadata: assistantMetadata,
           })
           .select("id")
@@ -1261,6 +1293,7 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
               user_id: user.id,
               role: "assistant",
               content: replyText,
+              metadata: assistantMetadata,
             })
             .select("id")
             .maybeSingle();
@@ -1310,7 +1343,9 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
     return jsonResponse({
       success: true,
       conversation_id: activeConversationId,
+      assistant_message_id: astMsgId,
       message: {
+        id: astMsgId,
         role: "assistant",
         content: replyText,
         source_engine: sourceEngine,

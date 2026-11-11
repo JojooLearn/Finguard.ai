@@ -115,7 +115,11 @@ class CoachRepositoryImpl implements CoachRepository {
               .order('created_at', ascending: true);
 
           final messages = (response as List).map((json) {
-            final metadata = json['metadata'] as Map<String, dynamic>?;
+            final rawMeta = json['metadata'];
+            final metadata = rawMeta is Map
+                ? Map<String, dynamic>.from(rawMeta)
+                : null;
+            final isClarification = metadata?['needs_clarification'] == true;
             return ChatMessageEntity(
               id: json['id'],
               conversationId: json['conversation_id'],
@@ -125,6 +129,10 @@ class CoachRepositoryImpl implements CoachRepository {
               content: json['content'] ?? '',
               createdAt: DateTime.parse(json['created_at']).toLocal(),
               structuredPayload: metadata,
+              status: isClarification
+                  ? ChatMessageStatus.needsClarification
+                  : ChatMessageStatus.completed,
+              needsClarification: isClarification,
               isConfirmed: metadata?['confirmed'] == true,
               audioBase64: metadata?['audio_base64'] as String?,
             );
@@ -401,6 +409,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // 2. Try remote Edge Function if user is authenticated (Fast path: no redundant sequential pre-queries, 20s timeout)
     bool edgeFunctionPersisted = false;
+    String? remoteAssistantMsgId;
     if (user != null) {
       try {
         final now = DateTime.now();
@@ -447,6 +456,11 @@ class CoachRepositoryImpl implements CoachRepository {
           coachReply = msgMap?['content']?.toString() ??
               data['reply']?.toString() ??
               '';
+          final rawAstId = msgMap?['id']?.toString() ??
+              data['assistant_message_id']?.toString();
+          if (rawAstId != null && rawAstId.isNotEmpty) {
+            remoteAssistantMsgId = rawAstId;
+          }
           final sourceEngine = msgMap?['source_engine']?.toString() ??
               data['source_engine']?.toString();
           if (sourceEngine != null && sourceEngine.isNotEmpty) {
@@ -510,7 +524,10 @@ class CoachRepositoryImpl implements CoachRepository {
     }
 
     // 4. Direct Client DB Persistence to Supabase (Fallback ONLY if Edge Function was not used or failed)
-    String assistantMsgId = 'msg_ast_${DateTime.now().millisecondsSinceEpoch}';
+    String assistantMsgId =
+        (remoteAssistantMsgId != null && remoteAssistantMsgId.isNotEmpty)
+            ? remoteAssistantMsgId
+            : 'msg_ast_${DateTime.now().millisecondsSinceEpoch}';
     if (user != null && !edgeFunctionPersisted) {
       final convId = activeConvId ?? await _getOrCreateConversationId(user.id);
       if (convId != null) {
@@ -631,19 +648,67 @@ class CoachRepositoryImpl implements CoachRepository {
     return Success(assistantMsg);
   }
 
+  static final RegExp _uuidRegex = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+
   @override
   Future<void> updateMessageMetadata({
     required String messageId,
     required Map<String, dynamic> metadata,
   }) async {
+    String? localConvId;
+    String? localContent;
+    final idx = _localChatHistory.indexWhere((m) => m.id == messageId);
+    if (idx != -1) {
+      final existing = _localChatHistory[idx];
+      localConvId = existing.conversationId;
+      localContent = existing.content;
+      _localChatHistory[idx] = existing.copyWith(
+        isConfirmed: metadata['confirmed'] == true,
+        structuredPayload: metadata,
+      );
+    }
+
     try {
       final user = client.auth.currentUser;
-      if (user != null) {
+      if (user == null) return;
+
+      if (_uuidRegex.hasMatch(messageId)) {
         await client
             .from('chat_messages')
             .update({'metadata': metadata})
             .eq('id', messageId)
             .eq('user_id', user.id);
+        return;
+      }
+
+      // Defensive fallback if messageId was generated client-side: locate matching assistant row in Supabase
+      if (localContent != null && localContent.isNotEmpty) {
+        var query = client
+            .from('chat_messages')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('role', 'assistant')
+            .eq('content', localContent);
+        if (localConvId != null && _uuidRegex.hasMatch(localConvId)) {
+          query = query.eq('conversation_id', localConvId);
+        }
+        final matched = await query
+            .order('created_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+        final resolvedId = matched?['id']?.toString();
+        if (resolvedId != null && resolvedId.isNotEmpty) {
+          await client
+              .from('chat_messages')
+              .update({'metadata': metadata})
+              .eq('id', resolvedId)
+              .eq('user_id', user.id);
+          if (idx != -1) {
+            _localChatHistory[idx] = _localChatHistory[idx].copyWith(id: resolvedId);
+          }
+        }
       }
     } catch (_) {}
   }

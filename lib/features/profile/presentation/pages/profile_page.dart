@@ -390,14 +390,6 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 8),
               _buildCardGroup([
                 _buildRowItem(
-                  icon: PhosphorIcons.sparkle(),
-                  title: 'Atur Peta Keuangan',
-                  subtitle:
-                      'Simulasi pembagian gaji 50/30/20 & update batas belanja',
-                  onTap: () => context.push('/blueprint'),
-                ),
-                _buildDivider(),
-                _buildRowItem(
                   icon: PhosphorIcons.piggyBank(),
                   title: 'Target Tabungan (Celengan)',
                   subtitle: 'Pantau celengan dana darurat & tujuan impian',
