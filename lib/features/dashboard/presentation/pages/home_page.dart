@@ -10,7 +10,6 @@ import '../../../../core/formatters/date_formatter.dart';
 import '../../../../core/utils/financial_calculator.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../../../auth/presentation/cubit/auth_state.dart';
-import '../../../budgets/domain/entities/budget_entity.dart';
 import '../../../budgets/presentation/cubit/budget_cubit.dart';
 import '../../../budgets/presentation/cubit/budget_state.dart';
 import '../../../goals/domain/entities/goal_entity.dart';
@@ -30,7 +29,6 @@ import '../../../profile/presentation/cubit/profile_state.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/explanation_sheet.dart';
 import '../../../../core/widgets/metric_card.dart';
-import '../../../../core/widgets/status_chip.dart';
 
 class HomePage extends StatefulWidget {
   final VoidCallback? onOpenAddSheet;
@@ -456,7 +454,7 @@ class _HomePageState extends State<HomePage> {
 
                 const SizedBox(height: 12),
 
-                // 3. Hero Label & Huge Net Cash Flow Number + 2x2 Grid
+                // 3. Hero Label & Huge Net Cash Flow Number + 3-Card Bento
                 GestureDetector(
                   onTap: () {
                     final txState = context.read<TransactionCubit>().state;
@@ -618,384 +616,201 @@ class _HomePageState extends State<HomePage> {
 
                         const SizedBox(height: 16),
 
-                        // 4. Section of 4 Equal Square Statistic Cards (2x2 Grid)
-                        BlocBuilder<BudgetCubit, BudgetState>(
-                          builder: (context, budgetState) {
-                            String budgetLabel = 'Jatah Belanja';
-                            String budgetVal = 'Belum Diatur';
-                            String budgetCap = 'Atur Jatah di Menu Budget';
-                            double? budgetProgress;
-                            Color? budgetProgressColor;
-                            IconData budgetIcon = PhosphorIcons.wallet(
-                              PhosphorIconsStyle.fill,
-                            );
-                            Widget budgetChip = StatusChip.aman('Aman');
-                            BudgetEntity? topBudget;
-
-                            if (budgetState is BudgetLoaded &&
-                                budgetState.budgets.isNotEmpty) {
-                              final sorted = [...budgetState.budgets]
-                                ..sort(
-                                  (a, b) => b.usagePercentage.compareTo(
-                                    a.usagePercentage,
-                                  ),
-                                );
-                              topBudget = sorted.first;
-                              budgetLabel = topBudget.categoryName ?? 'Pos Belanja';
-                              final uuidRegex = RegExp(
-                                r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-                              );
-                              if (uuidRegex.hasMatch(budgetLabel) ||
-                                  budgetLabel.length > 25) {
-                                budgetLabel = 'Pos Belanja';
-                              }
-
-                              final lowerName = budgetLabel.toLowerCase();
-                              if (lowerName.contains('makan') ||
-                                  lowerName.contains('minum') ||
-                                  lowerName.contains('kuliner')) {
-                                budgetIcon = PhosphorIcons.forkKnife(
-                                  PhosphorIconsStyle.fill,
-                                );
-                              } else if (lowerName.contains('trans') ||
-                                  lowerName.contains('bensin') ||
-                                  lowerName.contains('ojol')) {
-                                budgetIcon = PhosphorIcons.car(
-                                  PhosphorIconsStyle.fill,
-                                );
-                              } else if (lowerName.contains('tagihan') ||
-                                  lowerName.contains('listrik') ||
-                                  lowerName.contains('utilitas')) {
-                                budgetIcon = PhosphorIcons.receipt(
-                                  PhosphorIconsStyle.fill,
-                                );
-                              } else if (lowerName.contains('hiburan') ||
-                                  lowerName.contains('nonton') ||
-                                  lowerName.contains('hobi')) {
-                                budgetIcon = PhosphorIcons.gameController(
-                                  PhosphorIconsStyle.fill,
-                                );
-                              }
-
-                              if (!hasMonthCashflow) {
-                                budgetVal = 'Rp0';
-                                budgetCap = 'Tidak ada transaksi';
-                                budgetProgress = 0.0;
-                                budgetChip = const StatusChip(
-                                  label: '-',
-                                  type: StatusType.neutral,
-                                );
-                              } else {
-                                budgetVal = CurrencyFormatter.format(
-                                  topBudget.spentAmount,
-                                );
-                                budgetCap =
-                                    'Sisa jatah: ${CurrencyFormatter.format(topBudget.remainingAmount)}';
-                                budgetProgress = topBudget.usagePercentage.clamp(
-                                  0.0,
-                                  1.0,
-                                );
-
-                                if (topBudget.isExceeded) {
-                                  budgetChip = StatusChip.melebihi('Jebol');
-                                  budgetProgressColor = AppColors.expenseRed;
-                                } else if (topBudget.usagePercentage >= 0.85) {
-                                  budgetChip = StatusChip.hampirHabis('Menipis');
-                                  budgetProgressColor = AppColors.warningOrange;
-                                } else {
-                                  budgetChip = StatusChip.aman('Aman');
-                                  budgetProgressColor = AppColors.primaryLime;
-                                }
-                              }
-                            } else if (!hasMonthCashflow) {
-                              budgetVal = 'Rp0';
-                              budgetCap = 'Tidak ada transaksi';
-                              budgetProgress = 0.0;
-                              budgetChip = const StatusChip(
-                                label: '-',
-                                type: StatusType.neutral,
-                              );
-                            }
+                        // 4. Bento Statistic Cards (Row 1: Pemasukan & Pengeluaran, Row 2: Dana Darurat)
+                        Builder(
+                          builder: (context) {
+                            final double expenseRatio = mInc > 0
+                                ? (mExp / mInc).clamp(0.0, 1.0)
+                                : (mExp > 0 ? 1.0 : 0.0);
+                            final int expensePct = mInc > 0
+                                ? ((mExp / mInc) * 100).round()
+                                : (mExp > 0 ? 100 : 0);
+                            final Color expenseProgressColor = mInc <= 0
+                                ? (mExp > 0
+                                    ? AppColors.expenseRed
+                                    : const Color(0xFFC4B5FD))
+                                : (mExp / mInc) >= 0.9
+                                    ? AppColors.expenseRed
+                                    : (mExp / mInc) >= 0.65
+                                        ? AppColors.warningOrange
+                                        : const Color(0xFFC4B5FD);
 
                             String goalLabel = 'Dana Darurat';
-                            String goalVal = 'Mulai Nabung';
-                                String goalCap = 'Buat celenganmu di profil';
-                                double? goalProgress;
-                                GoalEntity? topGoal;
-                                IconData goalIcon = PhosphorIcons.shieldCheck(
-                                  PhosphorIconsStyle.fill,
-                                );
-                                Widget goalChip = Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.08),
-                                    borderRadius: BorderRadius.circular(
-                                      AppSpacing.radiusPill,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '0%',
-                                    style: AppTypography.smallCaption.copyWith(
-                                      color: AppColors.primaryDark,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                );
+                            GoalEntity? topGoal;
+                            IconData goalIcon = PhosphorIcons.shieldCheck(
+                              PhosphorIconsStyle.fill,
+                            );
 
-                                if (goalState is GoalLoaded &&
-                                    goalState.goals.isNotEmpty) {
-                                  final emergencyGoals = goalState.goals
-                                      .where((g) =>
-                                          g.goalType == GoalType.emergencyFund)
-                                      .toList();
-                                  topGoal = emergencyGoals.isNotEmpty
-                                      ? emergencyGoals.first
-                                      : goalState.goals.first;
-                                  goalLabel = topGoal.name;
-                                  if (topGoal.goalType == GoalType.emergencyFund) {
-                                    goalIcon = PhosphorIcons.shieldCheck(
+                            if (goalState is GoalLoaded &&
+                                goalState.goals.isNotEmpty) {
+                              final emergencyGoals = goalState.goals
+                                  .where(
+                                    (g) => g.goalType == GoalType.emergencyFund,
+                                  )
+                                  .toList();
+                              topGoal = emergencyGoals.isNotEmpty
+                                  ? emergencyGoals.first
+                                  : goalState.goals.first;
+                              goalLabel = topGoal.name;
+                              goalIcon = topGoal.goalType == GoalType.emergencyFund
+                                  ? PhosphorIcons.shieldCheck(
+                                      PhosphorIconsStyle.fill,
+                                    )
+                                  : PhosphorIcons.piggyBank(
                                       PhosphorIconsStyle.fill,
                                     );
-                                  } else {
-                                    goalIcon = PhosphorIcons.piggyBank(
-                                      PhosphorIconsStyle.fill,
-                                    );
-                                  }
-                                }
+                            }
 
-                                double effectiveSaved = 0.0;
-                                final double targetAmt =
-                                    topGoal?.targetAmount ?? 0.0;
+                            final bool hideGoalForEmptyPastMonth =
+                                !hasMonthCashflow && !isCurrentMonth;
+                            final double effectiveSaved = hideGoalForEmptyPastMonth
+                                ? 0.0
+                                : (topGoal?.currentAmount ?? 0.0);
+                            final double targetAmt = hideGoalForEmptyPastMonth
+                                ? 0.0
+                                : (topGoal?.targetAmount ?? 0.0);
+                            final double goalProgress = targetAmt > 0
+                                ? (effectiveSaved / targetAmt).clamp(0.0, 1.0)
+                                : 0.0;
+                            final int goalPctInt = (goalProgress * 100).round();
 
-                                if (!hasMonthCashflow) {
-                                  effectiveSaved = 0.0;
-                                  goalVal = 'Rp0';
-                                  goalCap = 'Target: Rp0';
-                                  goalProgress = 0.0;
-                                } else {
-                                  effectiveSaved =
-                                      topGoal?.currentAmount ?? 0.0;
-                                  goalVal =
-                                      CurrencyFormatter.format(effectiveSaved);
-                                  goalCap = targetAmt > 0
-                                      ? 'Target: ${CurrencyFormatter.formatCompact(targetAmt)}'
-                                      : (topGoal != null
-                                          ? 'Target: Belum diatur'
-                                          : 'Buat celenganmu');
-                                  goalProgress = targetAmt > 0
-                                      ? (effectiveSaved / targetAmt)
-                                          .clamp(0.0, 1.0)
-                                      : 0.0;
-                                }
-
-                                final pct = goalProgress;
-                                goalChip = Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(
-                                      alpha: 0.08,
-                                    ),
-                                    borderRadius: BorderRadius.circular(
-                                      AppSpacing.radiusPill,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '${(pct * 100).round()}%',
-                                    style: AppTypography.smallCaption
-                                        .copyWith(
-                                          color: AppColors.primaryDark,
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 10,
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Row 1: Pemasukan & Pengeluaran
+                                SizedBox(
+                                  height: 150,
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: MetricCard(
+                                          cardTheme: MetricCardTheme.lime,
+                                          icon: PhosphorIcons.arrowDownLeft(
+                                            PhosphorIconsStyle.bold,
+                                          ),
+                                          label: 'Total Pemasukan',
+                                          value: incomeText,
+                                          caption: incTxs.isEmpty
+                                              ? monthSubtitle
+                                              : '${incTxs.length}x masuk • $monthSubtitle',
+                                          showInfoIcon: false,
+                                          statusChip: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.08,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                    AppSpacing.radiusPill,
+                                                  ),
+                                            ),
+                                            child: Text(
+                                              'Masuk',
+                                              style: AppTypography.smallCaption
+                                                  .copyWith(
+                                                    color:
+                                                        AppColors.primaryDark,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 10,
+                                                  ),
+                                            ),
+                                          ),
+                                          infoExplanation:
+                                              'Akumulasi dari ${incTxs.length} transaksi pemasukan yang kamu catat pada $currentPeriodLabel dengan total ${CurrencyFormatter.format(mInc)}. Angka ini menjadi dasar patokan batas belanja dan jatah tabunganmu.',
+                                          infoFormula:
+                                              '${incTxs.length} Transaksi Masuk = ${CurrencyFormatter.format(mInc)}',
+                                          infoTip:
+                                              'Catat pemasukan rutin dan sampingan tepat waktu agar kalkulasi keuanganmu tetap presisi.',
+                                          onTap: null,
                                         ),
+                                      ),
+                                      const SizedBox(
+                                        width: AppSpacing.cardGap,
+                                      ),
+                                      Expanded(
+                                        child: MetricCard(
+                                          cardTheme: MetricCardTheme.dark,
+                                          icon: PhosphorIcons.arrowUpRight(
+                                            PhosphorIconsStyle.bold,
+                                          ),
+                                          label: 'Total Pengeluaran',
+                                          value: expenseText,
+                                          caption: mExp <= 0
+                                              ? 'Belum ada belanja'
+                                              : (mInc > 0
+                                                  ? '$expensePct% dari pemasukan'
+                                                  : '${expTxs.length}x belanja • $monthSubtitle'),
+                                          progress: expenseRatio,
+                                          progressColor: expenseProgressColor,
+                                          showInfoIcon: false,
+                                          statusChip: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.16,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                    AppSpacing.radiusPill,
+                                                  ),
+                                            ),
+                                            child: Text(
+                                              'Keluar',
+                                              style: AppTypography.smallCaption
+                                                  .copyWith(
+                                                    color: AppColors.textLight,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 10,
+                                                  ),
+                                            ),
+                                          ),
+                                          infoExplanation:
+                                              'Akumulasi dari ${expTxs.length} transaksi pengeluaran atau belanja yang sudah terpakai pada $currentPeriodLabel dengan total ${CurrencyFormatter.format(mExp)}. FinGuard membandingkannya secara real-time dengan jatah belanja dan total pemasukanmu.',
+                                          infoFormula: mInc > 0
+                                              ? '${CurrencyFormatter.format(mExp)} / ${CurrencyFormatter.format(mInc)} ($expensePct% terpakai)'
+                                              : '${expTxs.length} Transaksi Keluar = ${CurrencyFormatter.format(mExp)}',
+                                          infoTip:
+                                              'Pantau pengeluaran harianmu agar tidak melebihi batas belanja dan tetap memiliki sisa uang dingin.',
+                                          onTap: null,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                );
-
-                                return Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // Row 1: Pemasukan & Pengeluaran
-                                    SizedBox(
-                                      height: 148,
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: MetricCard(
-                                              cardTheme: MetricCardTheme.lime,
-                                              icon: PhosphorIcons.arrowDownLeft(
-                                                PhosphorIconsStyle.bold,
-                                              ),
-                                              label: 'Total Pemasukan',
-                                              value: incomeText,
-                                              caption: monthSubtitle,
-                                              showInfoIcon: false,
-                                              statusChip: Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 3,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.black
-                                                      .withValues(alpha: 0.08),
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                        AppSpacing.radiusPill,
-                                                      ),
-                                                ),
-                                                child: Text(
-                                                  'Masuk',
-                                                  style: AppTypography
-                                                      .smallCaption
-                                                      .copyWith(
-                                                        color: AppColors
-                                                            .primaryDark,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        fontSize: 10,
-                                                      ),
-                                                ),
-                                              ),
-                                              infoExplanation:
-                                                  'Akumulasi dari ${incTxs.length} transaksi pemasukan yang kamu catat pada $currentPeriodLabel dengan total ${CurrencyFormatter.format(mInc)}. Angka ini menjadi dasar patokan batas belanja dan jatah tabunganmu.',
-                                              infoFormula:
-                                                  '${incTxs.length} Transaksi Masuk = ${CurrencyFormatter.format(mInc)}',
-                                              infoTip:
-                                                  'Catat pemasukan rutin dan sampingan tepat waktu agar kalkulasi keuanganmu tetap presisi.',
-                                              onTap: null,
-                                            ),
-                                          ),
-                                          const SizedBox(
-                                            width: AppSpacing.cardGap,
-                                          ),
-                                          Expanded(
-                                            child: MetricCard(
-                                              cardTheme: MetricCardTheme.dark,
-                                              icon: PhosphorIcons.arrowUpRight(
-                                                PhosphorIconsStyle.bold,
-                                              ),
-                                              label: 'Total Pengeluaran',
-                                              value: expenseText,
-                                              caption: expenseText == 'Rp0'
-                                                  ? 'Belum ada belanja'
-                                                  : monthSubtitle,
-                                              showInfoIcon: false,
-                                              statusChip: Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 3,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.16),
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                        AppSpacing.radiusPill,
-                                                      ),
-                                                ),
-                                                child: Text(
-                                                  'Keluar',
-                                                  style: AppTypography
-                                                      .smallCaption
-                                                      .copyWith(
-                                                        color:
-                                                            AppColors.textLight,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        fontSize: 10,
-                                                      ),
-                                                ),
-                                              ),
-                                              infoExplanation:
-                                                  'Akumulasi dari ${expTxs.length} transaksi pengeluaran atau belanja yang sudah terpakai pada $currentPeriodLabel dengan total ${CurrencyFormatter.format(mExp)}. FinGuard membandingkannya secara real-time dengan jatah belanja dan total pemasukanmu.',
-                                              infoFormula:
-                                                  '${expTxs.length} Transaksi Keluar = ${CurrencyFormatter.format(mExp)}',
-                                              infoTip:
-                                                  'Pantau pengeluaran harianmu agar tidak melebihi batas belanja dan tetap memiliki sisa uang dingin.',
-                                              onTap: null,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(height: AppSpacing.cardGap),
-                                    // Row 2: Budget (Pos Belanja) & Goal (Dana Darurat)
-                                    SizedBox(
-                                      height: 148,
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: MetricCard(
-                                              cardTheme: MetricCardTheme.dark,
-                                              icon: budgetIcon,
-                                              label: budgetLabel,
-                                              value: budgetVal,
-                                              caption: budgetCap,
-                                              showInfoIcon: false,
-                                              statusChip: budgetChip,
-                                              progress: budgetProgress,
-                                              progressColor:
-                                                  budgetProgressColor,
-                                              infoExplanation: !hasMonthCashflow
-                                                   ? 'Tidak ada transaksi belanja tercatat pada $currentPeriodLabel.'
-                                                   : topBudget != null
-                                                  ? 'Jatah belanja untuk kategori "$budgetLabel" dialokasikan sebesar ${CurrencyFormatter.format(topBudget.limitAmount)}. Hingga saat ini telah terpakai ${CurrencyFormatter.format(topBudget.spentAmount)} (${(topBudget.usagePercentage * 100).round()}%). ${topBudget.isExceeded ? 'Pengeluaran telah melebihi batas jatah sebesar ${CurrencyFormatter.format(topBudget.spentAmount - topBudget.limitAmount)}.' : 'Sisa jatah aman yang masih bisa kamu belanjakan adalah ${CurrencyFormatter.format(topBudget.remainingAmount)}.'}'
-                                                  : 'Belum ada jatah belanja yang aktif untuk bulan ini. Buka menu Anggaran untuk membagi batas belanja per kategori.',
-                                              infoFormula: !hasMonthCashflow
-                                                   ? 'Tidak Ada Transaksi'
-                                                   : topBudget != null
-                                                  ? '${CurrencyFormatter.format(topBudget.limitAmount)} (Jatah) - ${CurrencyFormatter.format(topBudget.spentAmount)} (Terpakai) = ${CurrencyFormatter.format(topBudget.remainingAmount)} (Sisa)'
-                                                  : 'Batas Belanja - Belanja Terpakai',
-                                              infoTip: topBudget != null && topBudget.isExceeded
-                                                  ? 'Rem belanja kategori ini sampai awal bulan berikutnya agar dompet tidak makin boncos.'
-                                                  : 'Jika jatah kategori ini menipis, rem belanja yang bersifat keinginan agar tidak boncos.',
-                                              onTap: null,
-                                            ),
-                                          ),
-                                          const SizedBox(
-                                            width: AppSpacing.cardGap,
-                                          ),
-                                          Expanded(
-                                            child: MetricCard(
-                                              cardTheme: MetricCardTheme.lime,
-                                              icon: goalIcon,
-                                              label: goalLabel,
-                                              value: goalVal,
-                                              caption: goalCap,
-                                              showInfoIcon: false,
-                                              statusChip: goalChip,
-                                              progress: goalProgress,
-                                              progressColor:
-                                                  AppColors.primaryDark,
-                                              infoExplanation: !hasMonthCashflow
-                                                  ? 'Tidak ada aktivitas keuangan atau alokasi tabungan tercatat pada $currentPeriodLabel.'
-                                                  : (topGoal != null
-                                                      ? 'Target celengan "${topGoal.name}" sebesar ${CurrencyFormatter.format(topGoal.targetAmount)}. Saat ini telah terkumpul ${CurrencyFormatter.format(effectiveSaved)} (${(pct * 100).round()}%).'
-                                                      : 'Belum ada target tabungan yang diatur.'),
-                                              infoFormula: !hasMonthCashflow
-                                                  ? 'Tidak Ada Alokasi'
-                                                  : (targetAmt > 0
-                                                      ? 'Terkumpul ${CurrencyFormatter.format(effectiveSaved)} / Target ${CurrencyFormatter.format(targetAmt)} (${(pct * 100).round()}%)'
-                                                      : 'Target Tabungan: Belum Diatur'),
-                                               infoTip:
-                                                  'Setor sisa uang dingin setiap akhir bulan ke celengan ini agar target cepat tercapai.',
-                                              onTap: null,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
+                                ),
+                                const SizedBox(height: AppSpacing.cardGap),
+                                // Row 2: Elongated Dana Darurat Card with Progress Indicator
+                                _buildEmergencyFundBannerCard(
+                                  context: context,
+                                  label: goalLabel,
+                                  icon: goalIcon,
+                                  savedAmount: effectiveSaved,
+                                  targetAmount: targetAmt,
+                                  progress: goalProgress,
+                                  hasGoal: topGoal != null,
+                                  infoExplanation: hideGoalForEmptyPastMonth
+                                      ? 'Tidak ada aktivitas keuangan atau alokasi tabungan tercatat pada $currentPeriodLabel.'
+                                      : (topGoal != null
+                                          ? 'Target celengan "${topGoal.name}" sebesar ${CurrencyFormatter.format(topGoal.targetAmount)}. Saat ini telah terkumpul ${CurrencyFormatter.format(effectiveSaved)} ($goalPctInt%). Dana ini disimpan terpisah dari kas belanja harianmu.'
+                                          : 'Belum ada target tabungan yang diatur. Atur target Dana Darurat untuk melindungi arus kas dari kebutuhan mendadak.'),
+                                  infoFormula: hideGoalForEmptyPastMonth
+                                      ? 'Tidak Ada Alokasi'
+                                      : (targetAmt > 0
+                                          ? 'Terkumpul ${CurrencyFormatter.format(effectiveSaved)} / Target ${CurrencyFormatter.format(targetAmt)} ($goalPctInt%)'
+                                          : 'Target Tabungan: Belum Diatur'),
+                                  infoTip:
+                                      'Sisihkan sebagian uang dingin secara rutin ke celengan ini atau gunakan AI Coach untuk memindahkan dana dengan cepat.',
+                                ),
+                              ],
+                            );
+                          },
+                        ),
                           ],
                         );
                       },
@@ -1322,6 +1137,388 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Elongated bento card for Dana Darurat / primary goal progress below Income & Expense cards.
+  Widget _buildEmergencyFundBannerCard({
+    required BuildContext context,
+    required String label,
+    required IconData icon,
+    required double savedAmount,
+    required double targetAmount,
+    required double progress,
+    required bool hasGoal,
+    required String infoExplanation,
+    required String infoFormula,
+    required String infoTip,
+  }) {
+    final double clampedProgress = progress.clamp(0.0, 1.0);
+    final int pct = (clampedProgress * 100).round();
+    final bool hasTarget = targetAmount > 0;
+    final bool isCompleted = hasTarget && clampedProgress >= 1.0;
+    final double remaining = hasTarget && targetAmount > savedAmount
+        ? targetAmount - savedAmount
+        : 0.0;
+
+    final Color accentColor = isCompleted
+        ? AppColors.incomeGreen
+        : AppColors.primary;
+    final Color accentBgColor = isCompleted
+        ? AppColors.incomeGreenBg
+        : AppColors.primaryLight;
+    final Color accentTextColor = isCompleted
+        ? const Color(0xFF15803D)
+        : AppColors.primaryDark;
+
+    final String subtitle;
+    if (!hasGoal) {
+      subtitle = 'Buat celengan darurat agar kas harian terlindungi';
+    } else if (!hasTarget) {
+      subtitle = 'Target nominal tabungan belum diatur';
+    } else if (isCompleted) {
+      subtitle = 'Target penuh tercapai — dana aman siap siaga';
+    } else {
+      subtitle =
+          'Kurang ${CurrencyFormatter.formatCompact(remaining)} menuju target penuh';
+    }
+
+    final String tierLabel;
+    final Color tierDotColor;
+    if (isCompleted) {
+      tierLabel = 'Aman Tercapai';
+      tierDotColor = AppColors.incomeGreen;
+    } else if (clampedProgress >= 0.5) {
+      tierLabel = 'Progres Bagus';
+      tierDotColor = AppColors.primary;
+    } else if (savedAmount > 0) {
+      tierLabel = 'Terus Pupuk';
+      tierDotColor = AppColors.warningOrange;
+    } else {
+      tierLabel = 'Belum Terisi';
+      tierDotColor = AppColors.textSecondary;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusBentoAndItem),
+        border: Border.all(
+          color: isCompleted
+              ? AppColors.incomeGreen.withValues(alpha: 0.35)
+              : AppColors.primaryLight,
+          width: 1.2,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppSpacing.radiusBentoAndItem),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -28,
+              top: -32,
+              child: Container(
+                width: 112,
+                height: 112,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: accentBgColor.withValues(alpha: 0.45),
+                ),
+              ),
+            ),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  ExplanationSheet.show(
+                    context,
+                    title: label,
+                    metricValue: CurrencyFormatter.format(savedAmount),
+                    explanation: infoExplanation,
+                    formula: infoFormula,
+                    tip: infoTip,
+                    icon: icon,
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header: Icon, Title + Info cue, and Setor action pill
+                      Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: accentBgColor,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(icon, color: accentColor, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        label,
+                                        style: AppTypography.sectionLabel
+                                            .copyWith(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Icon(
+                                      PhosphorIcons.info(
+                                        PhosphorIconsStyle.bold,
+                                      ),
+                                      size: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  subtitle,
+                                  style: AppTypography.smallCaption.copyWith(
+                                    color: isCompleted
+                                        ? accentTextColor
+                                        : AppColors.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => GoRouter.maybeOf(context)?.push('/goals'),
+                            behavior: HitTestBehavior.opaque,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 11,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: accentBgColor,
+                                borderRadius: BorderRadius.circular(
+                                  AppSpacing.radiusPill,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    hasGoal && hasTarget ? 'Setor' : 'Atur',
+                                    style: AppTypography.smallCaption.copyWith(
+                                      color: accentTextColor,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    PhosphorIcons.arrowRight(
+                                      PhosphorIconsStyle.bold,
+                                    ),
+                                    size: 11,
+                                    color: accentTextColor,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // Main Saved Amount + Target Suffix + Percentage Pill
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: CurrencyFormatter.format(
+                                        savedAmount,
+                                      ),
+                                      style: AppTypography.cardValue.copyWith(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    if (hasTarget)
+                                      TextSpan(
+                                        text:
+                                            ' / ${CurrencyFormatter.formatCompact(targetAmount)}',
+                                        style: AppTypography.caption.copyWith(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentBgColor,
+                              borderRadius: BorderRadius.circular(
+                                AppSpacing.radiusPill,
+                              ),
+                            ),
+                            child: Text(
+                              '$pct%',
+                              style: AppTypography.smallCaption.copyWith(
+                                color: accentTextColor,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // Smooth Animated Progress Bar
+                      Semantics(
+                        label: 'Progress $label',
+                        value: '$pct%',
+                        child: Container(
+                          height: 10,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceFieldFill,
+                            borderRadius: BorderRadius.circular(
+                              AppSpacing.radiusPill,
+                            ),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                              AppSpacing.radiusPill,
+                            ),
+                            child: TweenAnimationBuilder<double>(
+                              tween: Tween<double>(
+                                begin: 0.0,
+                                end: clampedProgress,
+                              ),
+                              duration: const Duration(milliseconds: 500),
+                              curve: Curves.easeOutCubic,
+                              builder: (context, value, _) {
+                                final double visualFactor = value <= 0
+                                    ? 0.0
+                                    : value.clamp(0.03, 1.0);
+                                return Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: FractionallySizedBox(
+                                    widthFactor: visualFactor,
+                                    heightFactor: 1.0,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: isCompleted
+                                            ? AppColors.incomeGreen
+                                            : null,
+                                        gradient: isCompleted
+                                            ? null
+                                            : AppColors.aiAccentGradient,
+                                        borderRadius: BorderRadius.circular(
+                                          AppSpacing.radiusPill,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      // Footer: Health Tier Dot & Exact Target Amount
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Flexible(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: tierDotColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    tierLabel,
+                                    style: AppTypography.smallCaption.copyWith(
+                                      color: AppColors.textSecondary,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 11,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              hasTarget
+                                  ? 'Target: ${CurrencyFormatter.format(targetAmount)}'
+                                  : 'Target: Belum diatur',
+                              style: AppTypography.smallCaption.copyWith(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 11,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
