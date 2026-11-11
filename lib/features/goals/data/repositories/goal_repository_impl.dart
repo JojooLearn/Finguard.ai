@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../core/errors/failure.dart';
 import '../../../../core/result/result.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/repositories/goal_repository.dart';
@@ -152,12 +153,31 @@ class GoalRepositoryImpl implements GoalRepository {
     DateTime? date,
     String? note,
   }) async {
+    if (amount == 0) {
+      return const ErrorResult(
+        ServerFailure('Nominal mutasi tabungan tidak boleh nol.'),
+      );
+    }
+
     final index = _localGoals.indexWhere((g) => g.id == goalId);
     GoalEntity updatedGoal;
 
     if (index != -1) {
       final existing = _localGoals[index];
-      final newCurrent = existing.currentAmount + amount;
+      if (amount < 0 && existing.currentAmount + amount < -0.01) {
+        return const ErrorResult(
+          ServerFailure(
+            'Saldo target tabungan tidak mencukupi untuk penarikan ini.',
+          ),
+        );
+      }
+      final newCurrent =
+          (existing.currentAmount + amount).clamp(0.0, double.infinity);
+      final updatedStatus = newCurrent >= existing.targetAmount
+          ? GoalStatus.completed
+          : (existing.status == GoalStatus.completed
+                ? GoalStatus.active
+                : existing.status);
       updatedGoal = GoalEntity(
         id: existing.id,
         userId: existing.userId,
@@ -169,9 +189,7 @@ class GoalRepositoryImpl implements GoalRepository {
         currencyCode: existing.currencyCode,
         targetDate: existing.targetDate,
         priority: existing.priority,
-        status: newCurrent >= existing.targetAmount
-            ? GoalStatus.completed
-            : existing.status,
+        status: updatedStatus,
         createdAt: existing.createdAt,
         updatedAt: DateTime.now(),
       );
@@ -184,8 +202,8 @@ class GoalRepositoryImpl implements GoalRepository {
         userId: 'local_user',
         name: 'Target Tabungan',
         goalType: GoalType.savings,
-        targetAmount: amount,
-        currentAmount: amount,
+        targetAmount: amount.abs(),
+        currentAmount: amount > 0 ? amount : 0.0,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
@@ -211,28 +229,73 @@ class GoalRepositoryImpl implements GoalRepository {
           }
         }
 
+        final goalBefore = await client
+            .from('financial_goals')
+            .select()
+            .eq('id', validGoalId)
+            .single();
+        final beforeCurrent =
+            (goalBefore['current_amount'] as num?)?.toDouble() ?? 0.0;
+
+        if (amount < 0 && beforeCurrent + amount < -0.01) {
+          return const ErrorResult(
+            ServerFailure(
+              'Saldo Dana Darurat di database tidak mencukupi untuk penarikan ini.',
+            ),
+          );
+        }
+
+        final txDateStr =
+            (date ?? DateTime.now()).toIso8601String().split('T')[0];
+
+        // If withdrawing from a goal whose balance had no ledger rows yet,
+        // seed an opening ledger entry first so SUM(amount) remains accurate.
+        if (amount < 0 && beforeCurrent > 0) {
+          final existingRows = await client
+              .from('goal_contributions')
+              .select('id')
+              .eq('goal_id', validGoalId)
+              .limit(1);
+          if ((existingRows as List).isEmpty) {
+            await client.from('goal_contributions').insert({
+              'user_id': user.id,
+              'goal_id': validGoalId,
+              'amount': beforeCurrent,
+              'contribution_date': txDateStr,
+              'note': 'Saldo awal tercatat',
+            });
+          }
+        }
+
         await client.from('goal_contributions').insert({
           'user_id': user.id,
           'goal_id': validGoalId,
           'amount': amount,
-          'contribution_date': DateTime.now().toIso8601String().split('T')[0],
+          'contribution_date': txDateStr,
           'note': note,
         });
 
-        final goalData = await client
+        final goalAfter = await client
             .from('financial_goals')
             .select()
             .eq('id', validGoalId)
             .single();
-        final newCurrent =
-            ((goalData['current_amount'] as num?)?.toDouble() ?? 0.0) + amount;
+        final afterCurrent =
+            (goalAfter['current_amount'] as num?)?.toDouble() ?? 0.0;
 
-        final updated = await client
-            .from('financial_goals')
-            .update({'current_amount': newCurrent})
-            .eq('id', validGoalId)
-            .select()
-            .single();
+        // Postgres trigger `trg_goal_contributions_update_amount` already updates `current_amount`;
+        // only fall back to direct update if trigger did not adjust it.
+        Map<String, dynamic> updated = goalAfter;
+        if ((afterCurrent - beforeCurrent).abs() < 0.01) {
+          final newCurrent =
+              (beforeCurrent + amount).clamp(0.0, double.infinity);
+          updated = await client
+              .from('financial_goals')
+              .update({'current_amount': newCurrent})
+              .eq('id', validGoalId)
+              .select()
+              .single();
+        }
 
         final syncedGoal = GoalEntity(
           id: updated['id'],

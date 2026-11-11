@@ -1534,7 +1534,12 @@ class CoachRepositoryImpl implements CoachRepository {
           lower.contains('saham') ||
           lower.contains('crypto') ||
           lower.contains('kripto') ||
-          lower.contains('reksadana');
+          lower.contains('reksadana') ||
+          lower.contains('tambal') ||
+          lower.contains('ban') ||
+          lower.contains('servis') ||
+          lower.contains('bengkel') ||
+          lower.contains('darurat');
 
       final itemLabel = text
           .replaceAll(
@@ -1581,7 +1586,12 @@ class CoachRepositoryImpl implements CoachRepository {
           lower.contains('untung') ||
           lower.contains('crypto') ||
           lower.contains('kripto') ||
-          lower.contains('reksadana');
+          lower.contains('reksadana') ||
+          lower.contains('tambal') ||
+          lower.contains('ban') ||
+          lower.contains('servis') ||
+          lower.contains('bengkel') ||
+          lower.contains('darurat');
 
       if (!hasKeywords && itemLabel.isEmpty) {
         return (
@@ -1641,7 +1651,11 @@ class CoachRepositoryImpl implements CoachRepository {
           lower.contains('gojek') ||
           lower.contains('grab') ||
           lower.contains('tol') ||
-          lower.contains('parkir')) {
+          lower.contains('parkir') ||
+          lower.contains('ban') ||
+          lower.contains('tambal') ||
+          lower.contains('bengkel') ||
+          lower.contains('servis')) {
         categorySuggestion = 'Transportasi';
       } else if (lower.contains('listrik') ||
           lower.contains('wifi') ||
@@ -1666,10 +1680,35 @@ class CoachRepositoryImpl implements CoachRepository {
         categorySuggestion = 'Belanja Harian';
       }
 
+      final wantsEmergencyFund = !isIncome &&
+          RegExp(
+            r'(?:pakai|pake|ambil|gunakan|gunain|menggunakan|potong|tarik|dari)\s+(?:uang|dana)\s+darurat',
+          ).hasMatch(lower);
+
+      final emergencyGoalCurrent = goals
+          .where(
+            (g) =>
+                g.goalType == GoalType.emergencyFund ||
+                g.name.toLowerCase().contains('dana darurat'),
+          )
+          .fold(0.0, (s, g) => s + g.currentAmount);
+      final effectiveEmergencyBalance =
+          emergencyGoalCurrent > initialEmergencyFund
+              ? emergencyGoalCurrent
+              : initialEmergencyFund;
+
       final formattedAmt = _formatRp(extractedAmount);
-      final replyText = strictnessLevel >= 4
-          ? 'Nih draf transaksi ${isIncome ? 'pemasukan (tumben lu dapet duit anjing)' : 'pengeluaran (belanja mulu lu bangsat)'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion udah gua bikinin.\n\nCek kartu di bawah terus klik "Simpan" buat masukin ke database, ato klik "Batal" kalo otak tolol lu tiba-tiba sadar kagak jadi!'
-          : 'Draf transaksi ${isIncome ? 'pemasukan' : 'pengeluaran'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion sudah disiapkan.\n\nSilakan cek kartu di bawah lalu ketuk "Simpan" untuk mencatat ke database, atau "Batal" jika tidak jadi.';
+      final isEmergencyUsable =
+          wantsEmergencyFund && effectiveEmergencyBalance >= extractedAmount;
+      final effectiveCategory =
+          isEmergencyUsable ? 'Dana Darurat' : categorySuggestion;
+      final replyText = isEmergencyUsable
+          ? (strictnessLevel >= 4
+              ? 'Duh, $formattedAmt buat "$cleanNote" aja udah nyentuh Dana Darurat (${_formatRp(effectiveEmergencyBalance)})? Padahal pos $categorySuggestion lu masih bisa diandelin biar Dana Darurat utuh! Tapi karena lu minta, draf penarikan Dana Darurat udah gua siapin — cek sumber dananya di kartu bawah sebelum klik Simpan!'
+              : 'Catatan: Pengeluaran $formattedAmt untuk "$cleanNote" sebenarnya lebih disarankan memakai pos $categorySuggestion agar Dana Daruratmu (${_formatRp(effectiveEmergencyBalance)}) tetap terjaga. Namun draf penarikan Dana Darurat sudah disiapkan—kamu dapat memilih sumber dananya di kartu bawah lalu klik Simpan.')
+          : (strictnessLevel >= 4
+              ? 'Nih draf transaksi ${isIncome ? 'pemasukan (tumben lu dapet duit anjing)' : 'pengeluaran (belanja mulu lu bangsat)'} "$cleanNote" senilai $formattedAmt di pos $effectiveCategory udah gua bikinin.\n\nCek kartu di bawah terus klik "Simpan" buat masukin ke database, ato klik "Batal" kalo otak tolol lu tiba-tiba sadar kagak jadi!'
+              : 'Draf transaksi ${isIncome ? 'pemasukan' : 'pengeluaran'} "$cleanNote" senilai $formattedAmt di pos $effectiveCategory sudah disiapkan.\n\nSilakan cek kartu di bawah lalu ketuk "Simpan" untuk mencatat ke database, atau "Batal" jika tidak jadi.');
 
       return (
         reply: replyText,
@@ -1677,7 +1716,9 @@ class CoachRepositoryImpl implements CoachRepository {
           'amount': extractedAmount,
           'type': isIncome ? 'income' : 'expense',
           'note': cleanNote,
-          'category_suggestion': categorySuggestion,
+          'category_suggestion': effectiveCategory,
+          'funding_source': isEmergencyUsable ? 'emergency_fund' : 'regular',
+          if (isEmergencyUsable) 'fallback_category_suggestion': categorySuggestion,
           'confidence': 0.95,
         },
         needsClarification: false,

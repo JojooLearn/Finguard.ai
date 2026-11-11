@@ -132,6 +132,7 @@ Future<void> initDependencies() async {
       coachRepository: sl<CoachRepository>(),
       transactionRepository: sl<TransactionRepository>(),
       categoryRepository: sl<CategoryRepository>(),
+      goalRepository: sl<GoalRepository>(),
     ),
   );
 

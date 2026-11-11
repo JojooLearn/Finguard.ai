@@ -26,6 +26,7 @@ class CoachLoaded extends CoachState {
   final String? activeConversationTitle;
   final List<ChatConversationEntity> conversations;
   final bool isLoadingConversations;
+  final String? confirmFeedbackMessage;
 
   const CoachLoaded({
     required this.messages,
@@ -36,6 +37,7 @@ class CoachLoaded extends CoachState {
     this.activeConversationTitle,
     this.conversations = const [],
     this.isLoadingConversations = false,
+    this.confirmFeedbackMessage,
   });
 
   CoachLoaded copyWith({
@@ -49,6 +51,8 @@ class CoachLoaded extends CoachState {
     String? activeConversationTitle,
     List<ChatConversationEntity>? conversations,
     bool? isLoadingConversations,
+    String? confirmFeedbackMessage,
+    bool clearFeedback = false,
   }) {
     return CoachLoaded(
       messages: messages ?? this.messages,
@@ -66,6 +70,9 @@ class CoachLoaded extends CoachState {
       conversations: conversations ?? this.conversations,
       isLoadingConversations:
           isLoadingConversations ?? this.isLoadingConversations,
+      confirmFeedbackMessage: clearFeedback
+          ? null
+          : (confirmFeedbackMessage ?? this.confirmFeedbackMessage),
     );
   }
 
@@ -79,6 +86,7 @@ class CoachLoaded extends CoachState {
         activeConversationTitle,
         conversations,
         isLoadingConversations,
+        confirmFeedbackMessage,
       ];
 }
 

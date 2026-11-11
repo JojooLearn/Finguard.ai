@@ -1,5 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
+import '../../../goals/domain/entities/goal_entity.dart';
+import '../../../goals/domain/repositories/goal_repository.dart';
 import '../../../transactions/domain/entities/category_entity.dart';
 import '../../../transactions/domain/entities/transaction_entity.dart';
 import '../../../transactions/domain/repositories/category_and_account_repository.dart';
@@ -12,12 +14,14 @@ class CoachCubit extends Cubit<CoachState> {
   final CoachRepository coachRepository;
   final TransactionRepository? transactionRepository;
   final CategoryRepository? categoryRepository;
+  final GoalRepository? goalRepository;
   final Uuid _uuid = const Uuid();
 
   CoachCubit({
     required this.coachRepository,
     this.transactionRepository,
     this.categoryRepository,
+    this.goalRepository,
   }) : super(const CoachInitial());
 
   void reset() {
@@ -361,6 +365,54 @@ class CoachCubit extends Cubit<CoachState> {
     emit(CoachLoaded(messages: cleanedMessages, isSending: false));
   }
 
+  void clearConfirmFeedback() {
+    if (state is CoachLoaded &&
+        (state as CoachLoaded).confirmFeedbackMessage != null) {
+      emit((state as CoachLoaded).copyWith(clearFeedback: true));
+    }
+  }
+
+  /// Switch transaction funding source between Emergency Fund and regular category budget before confirming
+  Future<void> switchTransactionFundingSource(
+    ChatMessageEntity message, {
+    required bool useEmergencyFund,
+  }) async {
+    if (state is! CoachLoaded || message.isConfirmed) return;
+    final currentState = state as CoachLoaded;
+    final payload = message.structuredPayload;
+    if (payload == null) return;
+    if (payload['rejected'] == true || payload['cancelled'] == true) return;
+
+    final currentCat = payload['category_suggestion']?.toString() ?? 'Lainnya';
+    final fallbackCat =
+        payload['fallback_category_suggestion']?.toString().trim().isNotEmpty == true
+            ? payload['fallback_category_suggestion'].toString().trim()
+            : (currentCat.toLowerCase() == 'dana darurat' ? 'Lainnya' : currentCat);
+
+    final updatedPayload = <String, dynamic>{
+      ...payload,
+      'funding_source': useEmergencyFund ? 'emergency_fund' : 'regular',
+      'category_suggestion': useEmergencyFund ? 'Dana Darurat' : fallbackCat,
+      'fallback_category_suggestion': fallbackCat,
+    };
+
+    final updatedMessages = currentState.messages.map((m) {
+      if (m.id == message.id) {
+        return m.copyWith(structuredPayload: updatedPayload);
+      }
+      return m;
+    }).toList();
+
+    emit(currentState.copyWith(messages: updatedMessages, clearFeedback: true));
+
+    try {
+      await coachRepository.updateMessageMetadata(
+        messageId: message.id,
+        metadata: updatedPayload,
+      );
+    } catch (_) {}
+  }
+
   /// Confirm and persist extracted transaction to database
   Future<void> confirmExtractedTransaction(ChatMessageEntity message) async {
     if (state is! CoachLoaded || transactionRepository == null) return;
@@ -374,16 +426,65 @@ class CoachCubit extends Cubit<CoachState> {
       return;
     }
 
-    emit(currentState.copyWith(confirmingMessageId: message.id));
+    emit(currentState.copyWith(
+      confirmingMessageId: message.id,
+      clearFeedback: true,
+    ));
 
     try {
       final amount = (payload['amount'] as num).toDouble();
       final isIncome = payload['type'] == 'income';
       final note = payload['note']?.toString() ?? 'Transaksi Coach AI';
       final clientReqId = _uuid.v4();
+      final useEmergencyFund =
+          !isIncome && payload['funding_source'] == 'emergency_fund';
+
+      if (useEmergencyFund && goalRepository != null) {
+        final goalsRes = await goalRepository!.getGoals();
+        final goalsList = goalsRes.fold((g) => g, (_) => <GoalEntity>[]);
+        final emergencyGoal = goalsList.where((g) {
+          return g.goalType == GoalType.emergencyFund ||
+              g.name.toLowerCase().contains('dana darurat');
+        }).firstOrNull;
+
+        if (emergencyGoal == null || emergencyGoal.currentAmount + 0.01 < amount) {
+          final currentSaldo = emergencyGoal?.currentAmount ?? 0.0;
+          final latestState = state is CoachLoaded
+              ? (state as CoachLoaded)
+              : currentState;
+          emit(latestState.copyWith(
+            clearConfirming: true,
+            confirmFeedbackMessage:
+                'Saldo Dana Darurat (Rp${currentSaldo.toStringAsFixed(0)}) tidak cukup untuk menarik Rp${amount.toStringAsFixed(0)}. Silakan pilih pos kategori biasa atau tambah Dana Darurat dulu.',
+          ));
+          return;
+        }
+
+        final withdrawRes = await goalRepository!.addContribution(
+          goalId: emergencyGoal.id,
+          amount: -amount,
+          date: DateTime.now(),
+          note: 'Pemakaian Dana Darurat: $note',
+        );
+        final withdrawOk = withdrawRes.fold((_) => true, (_) => false);
+        if (!withdrawOk) {
+          final latestState = state is CoachLoaded
+              ? (state as CoachLoaded)
+              : currentState;
+          emit(latestState.copyWith(
+            clearConfirming: true,
+            confirmFeedbackMessage:
+                'Gagal memotong saldo Dana Darurat di database. Coba lagi ya.',
+          ));
+          return;
+        }
+      }
 
       String? categoryId;
-      final catSuggestion = payload['category_suggestion']?.toString().toLowerCase().trim();
+      // When paid from Dana Darurat, route transaction log to 'Lainnya' so monthly budget (e.g. Transportasi) is NOT deducted!
+      final catSuggestion = useEmergencyFund
+          ? 'lainnya'
+          : payload['category_suggestion']?.toString().toLowerCase().trim();
       if (catSuggestion != null && categoryRepository != null) {
         final catsRes = await categoryRepository!.getCategories(
           type: isIncome ? TransactionType.income : TransactionType.expense,
@@ -399,12 +500,16 @@ class CoachCubit extends Cubit<CoachState> {
         }, (_) {});
       }
 
+      final txNote = useEmergencyFund && !note.toLowerCase().contains('dana darurat')
+          ? '$note (Sumber: Dana Darurat)'
+          : note;
+
       final txResult = await transactionRepository!.createTransaction(
         amount: amount,
         type: isIncome ? TransactionType.income : TransactionType.expense,
         transactionDate: DateTime.now(),
         categoryId: categoryId,
-        note: note,
+        note: txNote,
         source: TransactionSource.chat,
         clientRequestId: clientReqId,
       );
@@ -441,6 +546,7 @@ class CoachCubit extends Cubit<CoachState> {
         emit(latestState.copyWith(
           messages: updatedMessages,
           clearConfirming: true,
+          clearFeedback: true,
         ));
       } else {
         final latestState = state is CoachLoaded

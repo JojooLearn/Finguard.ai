@@ -20,6 +20,7 @@ import '../../domain/entities/chat_message_entity.dart';
 import '../../domain/services/receipt_scanner_service.dart';
 import '../../domain/services/voice_io_service.dart';
 import '../../../budgets/presentation/cubit/budget_cubit.dart';
+import '../../../goals/presentation/cubit/goal_cubit.dart';
 import '../../../profile/presentation/cubit/profile_cubit.dart';
 import '../../../profile/presentation/cubit/profile_state.dart';
 import '../../../transactions/presentation/cubit/transaction_cubit.dart';
@@ -646,6 +647,19 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
           child: BlocConsumer<CoachCubit, CoachState>(
             listener: (context, state) {
               if (state is CoachLoaded) {
+                if (state.confirmFeedbackMessage != null &&
+                    state.confirmFeedbackMessage!.isNotEmpty) {
+                  ScaffoldMessenger.of(context)
+                    ..clearSnackBars()
+                    ..showSnackBar(
+                      SnackBar(
+                        content: Text(state.confirmFeedbackMessage!),
+                        backgroundColor: AppColors.expenseRed,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  context.read<CoachCubit>().clearConfirmFeedback();
+                }
                 _scrollToBottom();
                 if (!state.isSending && state.messages.isNotEmpty) {
                   final latest = state.messages.last;
@@ -1761,6 +1775,15 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
     final category =
         payload['category_suggestion']?.toString() ??
         (isIncome ? 'Pemasukan' : 'Makan & Minum');
+    final isEmergencyFunded =
+        !isIncome && payload['funding_source'] == 'emergency_fund';
+    final fallbackCatRaw =
+        payload['fallback_category_suggestion']?.toString().trim() ?? '';
+    final fallbackCategory = fallbackCatRaw.isNotEmpty
+        ? fallbackCatRaw
+        : (category.toLowerCase() == 'dana darurat' ? 'Lainnya' : category);
+    final hasEmergencyToggle =
+        !isIncome && (isEmergencyFunded || fallbackCatRaw.isNotEmpty);
     final isRejected =
         payload['rejected'] == true || payload['cancelled'] == true;
 
@@ -1843,7 +1866,109 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
               const SizedBox(height: 6),
               _buildExtractRow('Kategori', category),
               const SizedBox(height: 6),
+              _buildExtractRow(
+                'Sumber Dana',
+                isIncome
+                    ? 'Pemasukan'
+                    : (isEmergencyFunded
+                          ? 'Potong Dana Darurat'
+                          : 'Pos $fallbackCategory'),
+              ),
+              const SizedBox(height: 6),
               _buildExtractRow('Catatan', note),
+
+              if (hasEmergencyToggle && !isRejected && !message.isConfirmed) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: isConfirming
+                            ? null
+                            : () => context
+                                  .read<CoachCubit>()
+                                  .switchTransactionFundingSource(
+                                    message,
+                                    useEmergencyFund: true,
+                                  ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isEmergencyFunded
+                                ? AppColors.primaryLight
+                                : AppColors.surfaceFieldFill,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isEmergencyFunded
+                                  ? AppColors.primary
+                                  : Colors.transparent,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'Potong Dana Darurat',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: isEmergencyFunded
+                                  ? AppColors.primaryDark
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: isConfirming
+                            ? null
+                            : () => context
+                                  .read<CoachCubit>()
+                                  .switchTransactionFundingSource(
+                                    message,
+                                    useEmergencyFund: false,
+                                  ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: !isEmergencyFunded
+                                ? AppColors.primaryLight
+                                : AppColors.surfaceFieldFill,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: !isEmergencyFunded
+                                  ? AppColors.primary
+                                  : Colors.transparent,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'Pos $fallbackCategory',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: !isEmergencyFunded
+                                  ? AppColors.primaryDark
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
 
               if (isRejected) ...[
                 const SizedBox(height: 12),
@@ -1878,9 +2003,11 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
                     color: AppColors.successTint,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Text(
-                    'Transaksi berhasil disimpan ke pos anggaran.',
-                    style: TextStyle(
+                  child: Text(
+                    isEmergencyFunded
+                        ? 'Saldo Dana Darurat berhasil dipotong & transaksi dicatat.'
+                        : 'Transaksi berhasil disimpan ke pos anggaran.',
+                    style: const TextStyle(
                       fontSize: 11,
                       color: AppColors.success,
                       fontWeight: FontWeight.w600,
@@ -1906,6 +2033,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
                                 } catch (_) {}
                                 try {
                                   context.read<BudgetCubit>().loadBudgets();
+                                } catch (_) {}
+                                try {
+                                  context.read<GoalCubit>().loadGoals();
                                 } catch (_) {}
                               },
                         child: Container(
