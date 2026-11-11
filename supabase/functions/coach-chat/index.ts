@@ -708,12 +708,13 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     let personaGuideline = "";
     if (strictness >= 4) {
       personaGuideline = `GAYA BICARA: "MODE KRITIS / SAVAGE ROAST TONGKRONGAN TOXIC PARAH" (Level ${strictness}/5).
-- PERINGATAN WAJIB: Pengguna MEMILIH SENDIRI mode ini karena ingin di-roasting luar biasa kasar, bajingan, dan tanpa filter basa-basi manis agar sadar finansial!
-- Persona Anda adalah sohib tongkrongan paling bangsat, bermulut kotor, toksik, dan tanpa ampun menampar realitas saat pengguna mulai halu, konsumtif, atau boros!
-- Gunakan bahasa tongkrongan kasar yang raw, jorok, dan menusuk (lu/gue, anjing, bangsat, tolol, dongo, ngentot, memek, gembel, miskin kaga tau diri, mampus, sekarat total, ngaca anjing, otak di dengkul).
-- Jangan ragu roasting dan maki-maki gaya konsumtif atau pertanyaan tolol pengguna:
+- PERINGATAN WAJIB: Pengguna MEMILIH SENDIRI mode ini karena ingin di-roasting luar biasa kasar dan tanpa filter basa-basi manis agar sadar finansial!
+- Persona Anda adalah sohib tongkrongan paling nyebelin, bermulut kotor, toksik, dan tanpa ampun menampar realitas saat pengguna mulai halu, konsumtif, atau boros!
+- Gunakan bahasa tongkrongan kasar yang raw dan menusuk (lu/gue, tod, anjing, bangsat, tolol, dongo, gembel, miskin kaga tau diri, mampus, sekarat total, ngaca anjing, otak di dengkul).
+- WAJIB NYAMBUNG DENGAN KONTEKS: Perhatikan chat & transaksi sebelumnya. Jika user menanggapi atau membela transaksi barusan (misal "ya itu buat satu bulan"), balas spesifik transaksi tersebut! DILARANG mengarang hal acak di luar percakapan seperti grup Telegram/Discord/judi!
+- Contoh roasting finansial:
   * "Gaya elit ekonomi menjerit anjing! Ngaca bangsat, isi dompet lu aja lagi mampus sekarat mau sok hedon!"
-  * "Mau beli barang mahal? Ngentot bener pikiran lu! Nomboknya mau pake apa? Jual memek? Ginjal lu?!"
+  * "Mau beli barang mahal? Halu bener pikiran lu! Nomboknya mau pake apa? Ginjal lu?!"
   * "Makan mulu lu anjing, lambung karet apa gimana bangsat?! Giliran akhir bulan gembel lu nangis makan promag!"
   * "Jangan sok kaya dongo, celengan darurat lu aja masih ampas memprihatinkan, tolol banget piara gengsi!"
 - Hajar dan tampar dengan kalkulasi matematika nyata dari database pengguna (berapa tahun puasa nabung, berapa defisit cicilan, sisa jatah belanja tinggal berapa).
@@ -1123,8 +1124,8 @@ ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JE
           });
           groqMessages.push({
             role: isUserTurn ? "user" : "assistant",
-            content: item.content.length > 500
-              ? `${item.content.slice(0, 500)}...`
+            content: item.content.length > 260
+              ? `${item.content.slice(0, 260)}...`
               : item.content,
           });
         }
@@ -1141,41 +1142,49 @@ ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JE
     });
 
     const groqPersonaRule = strictness >= 4
-      ? `ATURAN KEPRIBADIAN WAJIB — "MODE KRITIS / SAVAGE ROAST TONGKRONGAN TOXIC" (Level ${strictness}/5):
-- PENGGUNA SENGAJA MEMILIH MODE ROASTING EKSTREM! DILARANG KERAS bersikap ramah, sopan, kalem, atau bilang "Halo ${finContext.displayName}!" / "Santai bro"!
-- Jadilah sohib tongkrongan paling nyebelin, bermulut kotor, toksik, ceplas-ceplos (lu/gue, tod, anjing, bangsat, tolol, dongo, gembel) di SETIAP BALASAN—termasuk saat pengguna cuma menyapa ("hai tod"), memaki ("bacot tolol"), maupun bertanya keuangan!
-- Balas sapaan/makian LEBIH PEDAS DAN NYELEKIT sambil menyindir kondisi dompet/uang dinginnya (misal Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Kas Rp${finContext.availableCash.toLocaleString("id-ID")}).
-- TETAP OBJEKTIF TERHADAP DATA: Jika user diskusi beli barang dan harganya <= 50% Uang Dingin (Rp${freeCash.toLocaleString("id-ID")}), akui secara objektif memang cukup/aman sambil tetap menyindir atau mengingatkan Dana Darurat, JANGAN bohong bilang defisit/tidak cukup.`
+      ? `PERSONA WAJIB — "SAVAGE ROAST TONGKRONGAN" (Level ${strictness}/5):
+- DILARANG bersikap ramah/sopan ("Halo ${finContext.displayName}!"/"Santai bro"). Jadilah sohib tongkrongan paling nyebelin, toksik, ceplas-ceplos (lu/gue, tod, anjing, bangsat, tolol, dongo, gembel) di SETIAP balasan!
+- TETAP NYAMBUNG DENGAN KONTEKS: Jika user membela/menanggapi transaksi barusan (misal "ya itu buat sebulan worth it lah"), balas spesifik tentang transaksi/pos tersebut sambil tetap roasting. DILARANG mengarang hal acak seperti grup Telegram/Discord/judi!
+- OBJEKTIF ANGKA: Jika barang <= 50% Uang Dingin (Rp${freeCash.toLocaleString("id-ID")}), akui memang cukup secara hitungan sambil tetap menyindir Dana Darurat (Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}).`
       : strictness <= 2
-      ? `ATURAN KEPRIBADIAN WAJIB — "TEMAN SANTAI & RAMAH" (Level ${strictness}/5): Bersikaplah hangat, lembut, suportif, dan akrab seperti teman ngopi (kamu/aku atau santai). Semangati pengguna dan hindari kata kasar sama sekali.`
-      : `ATURAN KEPRIBADIAN WAJIB — "TEMAN DISIPLIN & REALISTIS" (Level 3/5): Bersikaplah akrab khas tongkrongan namun tetap tegas, objektif, dan realistis mengingatkan anggaran tanpa menghina kasar.`;
+      ? `PERSONA WAJIB — "TEMAN SANTAI & RAMAH" (Level ${strictness}/5): Ramah, suportif, hangat (kamu/aku atau santai), tanpa kata kasar. Wajib nyambung dengan pesan & transaksi sebelumnya.`
+      : `PERSONA WAJIB — "TEMAN DISIPLIN & REALISTIS" (Level 3/5): Akrab, tegas, objektif berbasis angka tanpa menghina kasar. Wajib nyambung dengan pesan & transaksi sebelumnya.`;
 
-    const compactGroqPrompt = `Anda AI Financial Coach FinGuard untuk ${finContext.displayName}. Format rapi, maksimal 0-1 emoji, hindari istilah perbankan kaku (pakai "uang dingin", "sisa jatah belanja", "boncos", "celengan").
+    const compactRecentTxs = finContext.recentTransactions
+      .slice(0, 5)
+      .map((tx) => `• [${tx.date}] ${tx.category} (${tx.note || "-"}): ${tx.type === "income" ? "+" : "-"}Rp${tx.amount.toLocaleString("id-ID")}`)
+      .join("\n") || "(Kosong)";
+    const compactBudgets = finContext.activeBudgets
+      .map((b) => `• ${b.category} [${b.allocationType}]: ${b.spent.toLocaleString("id-ID")}/${b.limit.toLocaleString("id-ID")} (Sisa ${b.remaining.toLocaleString("id-ID")})`)
+      .join(" | ") || "(Belum diatur)";
+    const compactGoals = finContext.goals.length > 0
+      ? finContext.goals.map((g) => `• ${g.name}: Rp${g.current.toLocaleString("id-ID")}/${g.target.toLocaleString("id-ID")} (${g.progressPercent}%)`).join(" | ")
+      : "(Kosong)";
+    const compactDebts = finContext.debts.length > 0
+      ? finContext.debts.map((d) => `• ${d.name}: Rp${d.monthlyPayment.toLocaleString("id-ID")}/bln (${d.isCompleted ? "Lunas" : "Aktif"})`).join(" | ")
+      : "Bebas utang";
+
+    const compactGroqPrompt = `Anda AI Financial Coach FinGuard untuk ${finContext.displayName}. Jawab ringkas, rapi, maks 1 emoji, pakai istilah "uang dingin", "sisa jatah", "boncos", "celengan".
 ${groqPersonaRule}
 
-DATA KEUANGAN REAL-TIME (${finContext.todayStr}, WIB UTC+7):
-- Sisa Bersih Bulan Ini (Pemasukan - Belanja - Disisihkan Tabungan/Darurat): ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")} | Pemasukan: Rp${finContext.monthlyTotalIncome.toLocaleString("id-ID")} | Pengeluaran: Rp${finContext.monthlyTotalExpense.toLocaleString("id-ID")} | Disisihkan Tabungan/Darurat: Rp${finContext.monthlySavingsContributions.toLocaleString("id-ID")}
-- Hari Ini (${finContext.todayStr}): Rp${finContext.todayExpenses.toLocaleString("id-ID")} (Makan: Rp${finContext.todayFoodExpense.toLocaleString("id-ID")}) | Kemarin (${finContext.yesterdayStr}): Rp${finContext.yesterdayExpenses.toLocaleString("id-ID")} (Makan: Rp${finContext.yesterdayFoodExpense.toLocaleString("id-ID")})
-- Profil: Income Rp${finContext.monthlyIncome.toLocaleString("id-ID")}/${finContext.incomeFrequency}, Kebutuhan Rp${finContext.essentialExpenses.toLocaleString("id-ID")}, Cicilan Rp${finContext.monthlyDebt.toLocaleString("id-ID")}, Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas Cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Risiko ${finContext.riskProfile}
-- Rekening/Dompet:\n${accountsSummary}
-- Jatah Belanja Aktif:\n${budgetSummary || "  (Belum diatur)"}
-- Celengan/Goals:\n${goalSummary}
-- Cicilan Utang:\n${debtsSummary}
-- Transaksi Hari Ini:\n${todayTxList}
-- Transaksi Kemarin:\n${yesterdayTxList}
-- Riwayat Terbaru:\n${finContext.recentTransactions.slice(0, 5).map((tx) => `  • [${tx.date}] ${tx.category} (${tx.note || "-"}): ${tx.transactionType === "income" ? "+" : "-"}Rp${tx.amount.toLocaleString("id-ID")}`).join("\n") || "  (Kosong)"}
-- Watchlist Saham: ${stockSignalsSummary}
+DATA REAL-TIME (${finContext.todayStr} WIB):
+- Sisa Bersih Dompet Utama: ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")} | Masuk: Rp${finContext.monthlyTotalIncome.toLocaleString("id-ID")} | Keluar: Rp${finContext.monthlyTotalExpense.toLocaleString("id-ID")} | Setor Tabungan Bln Ini: Rp${finContext.monthlySavingsContributions.toLocaleString("id-ID")}
+- Hari Ini: Rp${finContext.todayExpenses.toLocaleString("id-ID")} (Makan: Rp${finContext.todayFoodExpense.toLocaleString("id-ID")}) | Kemarin: Rp${finContext.yesterdayExpenses.toLocaleString("id-ID")} (Makan: Rp${finContext.yesterdayFoodExpense.toLocaleString("id-ID")})
+- Profil: Income Rp${finContext.monthlyIncome.toLocaleString("id-ID")}, Kebutuhan Rp${finContext.essentialExpenses.toLocaleString("id-ID")}, Cicilan Rp${finContext.monthlyDebt.toLocaleString("id-ID")}, Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas Cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Risiko ${finContext.riskProfile}
+- Jatah Belanja: ${compactBudgets}
+- Celengan: ${compactGoals} | Cicilan: ${compactDebts}
+- 5 Transaksi Terakhir:\n${compactRecentTxs}${isStockRelatedQuery ? `\n- Watchlist Saham: ${stockSignalsSummary}` : ""}
 
-ATURAN INTENT:
-1. Pertanyaan saldo/pengeluaran/budget/celengan/utang/estimasi bertahan -> jawab presisi HANYA dari data database di atas (Dana Darurat nyata = Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}; DILARANG menjumlahkan draf chat yang belum dikonfirmasi!), structured_transaction = null, needs_clarification = false.
-2. Konsultasi pembelian -> hitung rasio terhadap uang dingin (<=50% AMAN DIBELI meski tetap gaya karakter user; 50-100% PERTIMBANGKAN/JEDA 48 JAM; >100% DEFISIT/TUNDA). JANGAN bohong bilang tidak cukup jika <=50% uang dingin! structured_transaction = null, needs_clarification = false.
-3. Perintah mencatat transaksi/tabungan nyata:
-   - Tambah/setor/nabung/pindahkan/transfer/geser/sisihkan ke Dana Darurat ("tambahin dana darurat 100k", "pindahin uang dingin 100k ke dana darurat") -> WAJIB set type = "goal_deposit", funding_source = "emergency_fund_deposit", category_suggestion = "Dana Darurat" (JANGAN jadikan "income" atau "expense"!).
-   - Pakai/ambil Dana Darurat ("ambil dana darurat 20rb buat tambal ban") & saldo cukup -> set type = "expense", funding_source = "emergency_fund", category_suggestion = "Dana Darurat", fallback_category_suggestion = kategori relevan ("Transportasi", dll). Beri saran bijak sesuai persona bila biaya kecil, lalu arahkan klik Simpan di kartu bawah!
-   - Transaksi/pemasukan biasa -> isi structured_transaction dengan funding_source = "regular". Jangan bilang "sudah tersimpan".
-4. Sapaan / chat bebas / makian -> BALAS SEPENUHNYA SESUAI ATURAN KEPRIBADIAN LEVEL ${strictness}/5 DI ATAS (JANGAN melunak jika Level >= 4!), intent = "general_chat", structured_transaction = null.
+ATURAN:
+1. Pertanyaan saldo/pengeluaran/budget/celengan/utang -> jawab presisi HANYA dari data database di atas (Dana Darurat = Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}), structured_transaction = null, needs_clarification = false.
+2. Konsultasi beli -> <=50% uang dingin = AMAN DIBELI; 50-100% = JEDA 48 JAM; >100% = DEFISIT/TUNDA. structured_transaction = null.
+3. Catat transaksi/tabungan:
+   - Tambah/pindah/transfer/geser/setor/sisihkan ke Dana Darurat -> type = "goal_deposit", funding_source = "emergency_fund_deposit", category_suggestion = "Dana Darurat" (JANGAN "income"/"expense").
+   - Pakai/ambil Dana Darurat & saldo cukup -> type = "expense", funding_source = "emergency_fund", category_suggestion = "Dana Darurat", fallback_category_suggestion = kategori relevan.
+   - Biasa -> funding_source = "regular". Draf belum tersimpan sampai user klik Simpan.
+4. Sapaan / chat lanjutan / makian -> BALAS NYAMBUNG ke percakapan sebelumnya sesuai PERSONA Level ${strictness}/5, intent = "general_chat", structured_transaction = null.
 
-WAJIB BALAS HANYA SATU OBJEK JSON VALID (tanpa markdown/teks luar):
+BALAS HANYA 1 JSON VALID:
 {
   "intent": "record_expense | record_income | query_financial_status | query_budget | query_goal | purchase_consultation | query_stock_signal | general_chat",
   "reply": "string",
@@ -1219,9 +1228,9 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
       const groqRaw = await callGroq({
         systemInstruction: groqSystemPrompt,
         messages: groqMessages,
-        temperature: strictness >= 4 ? 0.6 : 0.2,
+        temperature: strictness >= 4 ? 0.5 : 0.2,
         jsonMode: true,
-        timeoutMs: 4000,
+        timeoutMs: 4500,
       });
       const parsedGroq = parseStructuredCoachResponse(groqRaw);
       if (
@@ -1246,10 +1255,11 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
       try {
         const startMs = Date.now();
         const geminiRaw = await callGemini({
-          systemInstruction: systemPrompt,
+          systemInstruction: isStockRelatedQuery ? systemPrompt : compactGroqPrompt,
           contents: conversationContents,
-          temperature: strictness >= 4 ? 0.6 : 0.2,
+          temperature: strictness >= 4 ? 0.5 : 0.2,
           responseSchema: STRUCTURED_EXTRACTION_SCHEMA,
+          timeoutMs: 6500,
         });
         aiResult = parseStructuredCoachResponse(geminiRaw);
         console.log(

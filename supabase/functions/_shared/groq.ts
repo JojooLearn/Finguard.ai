@@ -35,9 +35,16 @@ export async function callGroq({
     );
   }
 
-  // Note: Groq decommissioned legacy `llama3-8b-8192`; default to active ultra-fast `qwen/qwen3.8-27b`
-  // (also overridable at runtime via `GROQ_MODEL` Supabase secret).
-  const model = Deno.env.get("GROQ_MODEL")?.trim() || "qwen/qwen3.8-27b";
+  // Prioritize high-TPM Indonesian-capable model first; fall back automatically on 413/429/400/404.
+  const envModel = Deno.env.get("GROQ_MODEL")?.trim();
+  const modelCandidates = Array.from(
+    new Set([
+      ...(envModel ? [envModel] : []),
+      "llama-3.3-70b-versatile",
+      "qwen/qwen3.8-27b",
+      "llama-3.1-8b-instant",
+    ])
+  );
 
   const payloadMessages: GroqMessage[] = [];
   if (systemInstruction && systemInstruction.trim().length > 0) {
@@ -67,57 +74,77 @@ export async function callGroq({
     payloadMessages.push({ role: "user", content: "Halo Coach FinGuard!" });
   }
 
-  const requestBody: Record<string, unknown> = {
-    model,
-    messages: payloadMessages,
-    temperature,
-    max_tokens: maxTokens,
-  };
+  const deadline = Date.now() + timeoutMs;
+  let lastError: Error | null = null;
 
-  if (jsonMode) {
-    requestBody.response_format = { type: "json_object" };
+  for (const model of modelCandidates) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs < 1000) break;
+
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages: payloadMessages,
+      temperature,
+      max_tokens: maxTokens,
+    };
+
+    if (jsonMode) {
+      requestBody.response_format = { type: "json_object" };
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), remainingMs);
+
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        lastError = new ApiError(
+          `Groq ${model} error (${res.status}): ${errText.slice(0, 220)}`,
+          res.status,
+          res.status === 429 || res.status === 413 ? "GROQ_RATE_LIMIT" : "GROQ_HTTP_ERROR"
+        );
+        // Retry next Groq model immediately on TPM/rate limits, bad model, or JSON format fallback
+        if (res.status === 413 || res.status === 429 || res.status === 404 || res.status === 400 || res.status >= 500) {
+          continue;
+        }
+        throw lastError;
+      }
+
+      const json = await res.json();
+      const content = json.choices?.[0]?.message?.content;
+      if (!content || typeof content !== "string" || content.trim().length === 0) {
+        lastError = new Error(`Groq ${model} returned empty completion content`);
+        continue;
+      }
+
+      return content;
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        lastError = new ApiError(
+          `Groq API timed out after ${timeoutMs}ms`,
+          504,
+          "GROQ_TIMEOUT"
+        );
+        break;
+      }
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (err instanceof ApiError && err.statusCode === 401) {
+        throw err;
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey.trim()}`,
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new ApiError(
-        `Groq API error (${res.status}): ${errText.slice(0, 300)}`,
-        res.status,
-        res.status === 429 ? "GROQ_RATE_LIMIT" : "GROQ_HTTP_ERROR"
-      );
-    }
-
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content;
-    if (!content || typeof content !== "string" || content.trim().length === 0) {
-      throw new Error("Groq returned empty completion content");
-    }
-
-    return content;
-  } catch (err: any) {
-    if (err?.name === "AbortError") {
-      throw new ApiError(
-        `Groq API timed out after ${timeoutMs}ms`,
-        504,
-        "GROQ_TIMEOUT"
-      );
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  throw lastError ?? new ApiError("All Groq models failed", 502, "GROQ_HTTP_ERROR");
 }

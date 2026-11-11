@@ -447,10 +447,11 @@ class CoachRepositoryImpl implements CoachRepository {
       try {
         final now = DateTime.now();
 
-        // Package at most the last 6 messages as recent history for multi-turn context
-        final historyList = _localChatHistory.length > 1
-            ? _localChatHistory.sublist(0, _localChatHistory.length - 1)
-            : <ChatMessageEntity>[];
+        // Package at most the last 6 messages scoped strictly to the active conversation
+        final historyList = _localChatHistory
+            .take(_localChatHistory.length - 1)
+            .where((m) => m.conversationId == effectiveConvId)
+            .toList();
         final recentHistory = historyList.length > 6
             ? historyList.sublist(historyList.length - 6)
             : historyList;
@@ -469,9 +470,20 @@ class CoachRepositoryImpl implements CoachRepository {
           'receipt_base64': ?receiptBase64,
           'recent_history': recentHistory
               .map(
-                (m) => {
-                  'sender': m.senderType.toDbString(),
-                  'content': m.content,
+                (m) {
+                  var content = m.content;
+                  final payload = m.structuredPayload;
+                  if (payload != null && payload['amount'] != null) {
+                    final amt = (payload['amount'] as num).toDouble();
+                    final note = payload['note']?.toString() ?? '';
+                    final cat = payload['category_suggestion']?.toString() ?? '';
+                    content =
+                        '$content [Transaksi: ${note.isNotEmpty ? "$note " : ""}${_formatRp(amt)} - $cat]';
+                  }
+                  return {
+                    'sender': m.senderType.toDbString(),
+                    'content': content,
+                  };
                 },
               )
               .toList(),
@@ -479,7 +491,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
         final res = await client.functions
             .invoke('coach-chat', body: invokeBody)
-            .timeout(const Duration(seconds: 20));
+            .timeout(const Duration(seconds: 25));
 
         if (res.data != null && res.data is Map) {
           final data = Map<String, dynamic>.from(res.data as Map);
@@ -1169,8 +1181,16 @@ class CoachRepositoryImpl implements CoachRepository {
                     lower.contains('bisa beli') ||
                     lower.contains('konsultasi'))));
 
+    final isSpecificGoalQuery =
+        lower.contains('dana darurat') ||
+        lower.contains('uang darurat') ||
+        lower.contains('celengan') ||
+        lower.contains('target tabungan') ||
+        lower.contains('impian');
+
     final isWealthQuery =
         !isEmergencyDepositCommand &&
+        !isSpecificGoalQuery &&
         (lower.contains('dana yang') ||
             lower.contains('dana saya') ||
             lower.contains('dana ku') ||
@@ -1210,7 +1230,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
     if (isGreeting) {
       final greeting = strictnessLevel >= 4
-          ? 'Woi anjing! Dompet lu masih napas apa udah mampus sekarat bangsat?! Gausah sok hedon ngentot. Mau nanya apaan lu? Mau curhat boncos apa mau pamer kemiskinan lu ke gua?!'
+          ? 'Woi anjing! Dompet lu masih napas apa udah mampus sekarat bangsat?! Gausah sok hedon tod. Mau nanya apaan lu? Mau curhat boncos apa mau pamer kemiskinan lu ke gua?!'
           : 'Woi santai! Ada apaan nih? Mau cek saldo dompet, hitung barang idaman, apa mau tobat dari jajan boros?';
 
       return (
@@ -1448,34 +1468,28 @@ class CoachRepositoryImpl implements CoachRepository {
         '• Duit di Kas / Dompet Utama: ${_formatRp(actualLiquidCash)}',
       );
 
-      if (accounts.isNotEmpty) {
-        for (final acc in accounts) {
+      final nonZeroExtraAccounts = accounts
+          .where((acc) => !acc.isDefault && acc.openingBalance > 0)
+          .toList();
+      if (nonZeroExtraAccounts.isNotEmpty) {
+        for (final acc in nonZeroExtraAccounts) {
           buffer.writeln('  - ${acc.name}: ${_formatRp(acc.openingBalance)}');
         }
       }
 
-      if (totalGoalsSaved > 0) {
-        buffer.writeln(
-          '• Duit di Target Tabungan: ${_formatRp(totalGoalsSaved)}',
-        );
+      if (goals.isNotEmpty) {
         for (final g in goals) {
-          buffer.writeln('  - ${g.name}: ${_formatRp(g.currentAmount)}');
+          buffer.writeln('• ${g.name}: ${_formatRp(g.currentAmount)}');
         }
-      }
-
-      if (initialEmergencyFund > 0) {
-        buffer.writeln(
-          '• Dana Darurat Awal: ${_formatRp(initialEmergencyFund)}',
-        );
+      } else if (initialEmergencyFund > 0) {
+        buffer.writeln('• Dana Darurat: ${_formatRp(initialEmergencyFund)}');
       }
 
       buffer.writeln('• Sisa Uang Bersih Bulan Ini: ${_formatRp(netCashFlow)}');
       buffer.writeln(
         '• Uang Dingin Siap Pakai Bulan Ini: ${_formatRp(freeCash)}',
       );
-      buffer.writeln(
-        '\nTotal Duit & Tabungan: ${_formatRp(actualLiquidCash + totalGoalsSaved)}.',
-      );
+      buffer.writeln('');
 
       if (netCashFlow >= 0) {
         buffer.writeln(
@@ -2092,7 +2106,7 @@ class CoachRepositoryImpl implements CoachRepository {
       if (targetTxs.isEmpty) {
         buffer.writeln(
           strictnessLevel >= 4
-              ? 'Hari ini ($dateStr) belum ada catatan ${isFoodQuery ? 'makan' : 'pengeluaran'} yang lu masukin anjing. Tumben amat lu anteng bangsat, apa otak tolol lu lupa nyatet gara-gara sibuk halu ngentot?!'
+              ? 'Hari ini ($dateStr) belum ada catatan ${isFoodQuery ? 'makan' : 'pengeluaran'} yang lu masukin anjing. Tumben amat lu anteng bangsat, apa otak tolol lu lupa nyatet gara-gara sibuk halu tod?!'
               : 'Hari ini ($dateStr) belum ada catatan ${isFoodQuery ? 'makan & minum' : 'pengeluaran'} yang lu masukin.',
         );
       } else {
@@ -2189,7 +2203,7 @@ class CoachRepositoryImpl implements CoachRepository {
         if (remaining <= 0) {
           buffer.writeln(
             strictnessLevel >= 4
-                ? '⚠️ Jatah kategori ini udah ludes lu babat habis anjing! Puasa lu sekarang bangsat, kagak usah banyak gaya belanja lagi ngentot, miskin kaga tau diri!'
+                ? '⚠️ Jatah kategori ini udah ludes lu babat habis anjing! Puasa lu sekarang bangsat, kagak usah banyak gaya belanja lagi tod, miskin kaga tau diri!'
                 : '⚠️ Jatah kategori ini sudah habis! Lu kudu rem total pengeluaran di pos ini sampai bulan depan!',
           );
         } else if (strictnessLevel >= 4) {
@@ -2324,36 +2338,91 @@ class CoachRepositoryImpl implements CoachRepository {
         );
       }
 
-      final buffer = StringBuffer();
-      buffer.writeln('🎯 Progres Tabungan & Target Lu Tod:');
-      for (final g in goals) {
-        final progress = g.progressPercentage * 100;
-        final remaining = g.remainingAmount;
-        buffer.writeln('\n• ${g.name} (${g.goalType.displayName}):');
-        buffer.writeln(
-          '  Udah kekumpul: ${_formatRp(g.currentAmount)} dari target ${_formatRp(g.targetAmount)} (${progress.toInt()}%)',
-        );
-        buffer.writeln('  Kurang: ${_formatRp(remaining)} lagi');
-      }
+      final asksEmergencyOnly =
+          lower.contains('dana darurat') || lower.contains('uang darurat');
+      final emergencyGoals = goals
+          .where(
+            (g) =>
+                g.goalType == GoalType.emergencyFund ||
+                g.name.toLowerCase().contains('dana darurat'),
+          )
+          .toList();
+      final goalsToShow =
+          (asksEmergencyOnly && emergencyGoals.isNotEmpty) ? emergencyGoals : goals;
 
-      if (contributions.isNotEmpty) {
-        buffer.writeln('\nRiwayat Setoran Tabungan Terakhir:');
-        for (final c in contributions.take(4)) {
-          final gName = (c['financial_goals'] is Map)
-              ? c['financial_goals']['name']
-              : 'Celengan';
-          final amt = (c['amount'] as num?)?.toDouble() ?? 0.0;
-          final dt = c['contribution_date']?.toString() ?? '';
-          final note = c['note'] != null && c['note'].toString().isNotEmpty
-              ? ' ("${c['note']}")'
-              : '';
-          buffer.writeln('• [$dt] $gName$note: +${_formatRp(amt)}');
+      final buffer = StringBuffer();
+      if (asksEmergencyOnly && goalsToShow.length == 1) {
+        final ef = goalsToShow.first;
+        final progress = (ef.progressPercentage * 100).toInt();
+        final remaining = ef.remainingAmount;
+        if (strictnessLevel >= 4) {
+          buffer.writeln(
+            'Dana darurat lu sekarang di database: **${_formatRp(ef.currentAmount)}** (Target: ${_formatRp(ef.targetAmount)} | Progress $progress%, masih kurang ${_formatRp(remaining)}).',
+          );
+        } else if (strictnessLevel <= 2) {
+          buffer.writeln(
+            'Saldo Dana Daruratmu saat ini tercatat **${_formatRp(ef.currentAmount)}** dari target ${_formatRp(ef.targetAmount)} ($progress%, kurang ${_formatRp(remaining)} lagi).',
+          );
+        } else {
+          buffer.writeln(
+            'Saldo Dana Daruratmu saat ini: **${_formatRp(ef.currentAmount)}** dari target ${_formatRp(ef.targetAmount)} ($progress%, kurang ${_formatRp(remaining)}).',
+          );
+        }
+      } else {
+        buffer.writeln(
+          strictnessLevel >= 4
+              ? 'Progres Celengan & Target Tabungan Lu:'
+              : 'Progres Target Tabungan Kamu:',
+        );
+        for (final g in goalsToShow) {
+          final progress = g.progressPercentage * 100;
+          final remaining = g.remainingAmount;
+          buffer.writeln('\n• ${g.name} (${g.goalType.displayName}):');
+          buffer.writeln(
+            '  Terkumpul: ${_formatRp(g.currentAmount)} dari target ${_formatRp(g.targetAmount)} (${progress.toInt()}%)',
+          );
+          buffer.writeln('  Kurang: ${_formatRp(remaining)} lagi');
         }
       }
 
-      buffer.writeln(
-        '\n💡 Saran Coach: Beresin dulu Dana Darurat minimal 3-6 bulan biaya hidup tod, baru mikir flexing!',
-      );
+      if (contributions.isNotEmpty) {
+        final relevantContribs = asksEmergencyOnly
+            ? contributions
+                .where((c) {
+                  final gName = (c['financial_goals'] is Map)
+                      ? (c['financial_goals']['name']?.toString().toLowerCase() ?? '')
+                      : '';
+                  return gName.contains('darurat') || gName.isEmpty;
+                })
+                .take(3)
+                .toList()
+            : contributions.take(4).toList();
+        if (relevantContribs.isNotEmpty) {
+          buffer.writeln('\nRiwayat Mutasi Terbaru:');
+          for (final c in relevantContribs) {
+            final gName = (c['financial_goals'] is Map)
+                ? c['financial_goals']['name']
+                : 'Celengan';
+            final amt = (c['amount'] as num?)?.toDouble() ?? 0.0;
+            final dt = c['contribution_date']?.toString().split('T').first ?? '';
+            final note = c['note'] != null && c['note'].toString().isNotEmpty
+                ? ' ("${c['note']}")'
+                : '';
+            final sign = amt < 0 ? '-' : '+';
+            buffer.writeln('• [$dt] $gName$note: $sign${_formatRp(amt.abs())}');
+          }
+        }
+      }
+
+      if (strictnessLevel >= 4) {
+        buffer.writeln(
+          '\nJangan males nyisihin uang dingin ke Dana Darurat biar gak kalang kabut pas lagi apes.',
+        );
+      } else {
+        buffer.writeln(
+          '\nPertahankan konsistensi sisihin dana darurat minimal 3-6x kebutuhan pokok ya.',
+        );
+      }
 
       return (
         reply: buffer.toString(),

@@ -25,6 +25,7 @@ export async function callGemini({
   responseSchema,
   responseModalities,
   speechConfig,
+  timeoutMs = 7000,
 }: {
   systemInstruction?: string;
   contents: GeminiMessage[];
@@ -32,6 +33,7 @@ export async function callGemini({
   responseSchema?: Record<string, unknown>;
   responseModalities?: string[];
   speechConfig?: Record<string, unknown>;
+  timeoutMs?: number;
 }) {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) {
@@ -43,9 +45,8 @@ export async function callGemini({
     new Set([
       ...(envModel ? [envModel] : []),
       "gemini-2.0-flash",
-      "gemini-1.5-flash",
       "gemini-2.5-flash",
-      "gemini-1.5-pro",
+      "gemini-2.0-flash-lite",
     ])
   );
 
@@ -91,16 +92,18 @@ export async function callGemini({
     sanitizedContents = [{ role: "user", parts: [{ text: "Halo Coach FinGuard!" }] }];
   }
 
-  const hasMultimodalImage = sanitizedContents.some((m) =>
-    m.parts.some((p: any) => Boolean(p.inline_data))
-  );
-
   const buildRequestBody = (includeSchema: boolean) => {
     const body: any = {
       contents: sanitizedContents,
       generationConfig: {
         temperature,
       },
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+      ],
     };
 
     if (systemInstruction) {
@@ -126,25 +129,28 @@ export async function callGemini({
   let lastError = "";
   for (const model of modelCandidates) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       let res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildRequestBody(true)),
+        signal: controller.signal,
       });
 
       // If multimodal + responseSchema triggered 400 on a specific model, retry with JSON mimeType only
-      if (!res.ok && res.status === 400 && hasMultimodalImage && responseSchema) {
+      if (!res.ok && res.status === 400 && responseSchema) {
         res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(buildRequestBody(false)),
+          signal: controller.signal,
         });
       }
 
       if (!res.ok) {
-        lastError = `${model} (${res.status}) - ${await res.text()}`;
-        // Always try the next candidate model
+        lastError = `${model} (${res.status}) - ${(await res.text()).slice(0, 200)}`;
         continue;
       }
 
@@ -152,8 +158,13 @@ export async function callGemini({
       const candidate = json.candidates?.[0];
       const responseText = candidate?.content?.parts?.[0]?.text;
       if (responseText) return responseText;
+      lastError = `${model} empty (finish=${candidate?.finishReason || json?.promptFeedback?.blockReason || "unknown"})`;
     } catch (err: any) {
-      lastError = err?.message || String(err);
+      lastError = err?.name === "AbortError"
+        ? `${model} timeout (${timeoutMs}ms)`
+        : (err?.message || String(err));
+    } finally {
+      clearTimeout(timer);
     }
   }
 

@@ -6,7 +6,6 @@ import '../../../../app/theme/app_spacing.dart';
 import '../../../../app/theme/app_typography.dart';
 import '../../../../core/formatters/currency_formatter.dart';
 import '../../../../core/formatters/currency_input_formatter.dart';
-import '../../../../core/formatters/date_formatter.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/explanation_sheet.dart';
 import '../../../../core/widgets/status_chip.dart';
@@ -500,58 +499,8 @@ class _BudgetPageState extends State<BudgetPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header (Clean, balanced layout with Month Pill)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Atur Jatah Belanja', style: AppTypography.pageHeader),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceCard,
-                            borderRadius: BorderRadius.circular(AppSpacing.radiusPill),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(PhosphorIcons.calendarBlank(), size: 14, color: AppColors.primary),
-                              const SizedBox(width: 5),
-                              Text(
-                                DateFormatter.formatMonthYear(_currentDate),
-                                style: AppTypography.captionText.copyWith(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => _showAddCategoryBudgetSheet(context),
-                          child: Container(
-                            width: 36,
-                            height: 36,
-                            decoration: const BoxDecoration(
-                              color: AppColors.surfaceCard,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Center(
-                              child: Icon(
-                                PhosphorIcons.plus(),
-                                color: AppColors.primary,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                // Header
+                Text('Atur Jatah Belanja', style: AppTypography.pageHeader),
                 const SizedBox(height: 16),
 
                 // Top Summary Hero Card
