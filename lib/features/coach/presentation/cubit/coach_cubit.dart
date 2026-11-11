@@ -182,14 +182,23 @@ class CoachCubit extends Cubit<CoachState> {
 
     result.fold(
       (replyEntity) {
+        final effectiveReply = requestAudio
+            ? replyEntity.copyWith(
+                autoSpeak: true,
+                structuredPayload: {
+                  ...?replyEntity.structuredPayload,
+                  'voice_out': true,
+                },
+              )
+            : replyEntity.copyWith(autoSpeak: false);
         final updatedState = state is CoachLoaded ? (state as CoachLoaded) : null;
         final updated = updatedState?.messages ?? <ChatMessageEntity>[];
         emit((updatedState ?? CoachLoaded(messages: updated)).copyWith(
-          messages: [...updated, replyEntity],
+          messages: [...updated, effectiveReply],
           isSending: false,
           isScanningReceipt: false,
-          activeConversationId: replyEntity.conversationId.isNotEmpty
-              ? replyEntity.conversationId
+          activeConversationId: effectiveReply.conversationId.isNotEmpty
+              ? effectiveReply.conversationId
               : activeConvId,
         ));
       },
@@ -266,14 +275,15 @@ class CoachCubit extends Cubit<CoachState> {
 
     result.fold(
       (replyEntity) {
+        final effectiveReply = replyEntity.copyWith(autoSpeak: false);
         final updatedState = state is CoachLoaded ? (state as CoachLoaded) : null;
         final updated = updatedState?.messages ?? <ChatMessageEntity>[];
         emit((updatedState ?? CoachLoaded(messages: updated)).copyWith(
-          messages: [...updated, replyEntity],
+          messages: [...updated, effectiveReply],
           isSending: false,
           isScanningReceipt: false,
-          activeConversationId: replyEntity.conversationId.isNotEmpty
-              ? replyEntity.conversationId
+          activeConversationId: effectiveReply.conversationId.isNotEmpty
+              ? effectiveReply.conversationId
               : activeConvId,
         ));
       },

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
@@ -53,15 +54,126 @@ class InMemoryWavAudioSource extends StreamAudioSource {
   }
 }
 
-/// Service handling On-Device Speech-to-Text (Voice-In) and In-Memory AI Voice-Out utilities.
+/// Service handling On-Device Speech-to-Text (Voice-In) and On-Device Text-to-Speech (`flutter_tts` Voice-Out).
 class VoiceIoService {
   final SpeechToText _speechToText;
+  final FlutterTts _flutterTts;
   bool _isInitialized = false;
+  bool _isTtsConfigured = false;
+  bool _isSpeaking = false;
 
-  VoiceIoService({SpeechToText? speechToText})
-      : _speechToText = speechToText ?? SpeechToText();
+  VoidCallback? onTtsStateChanged;
+
+  VoiceIoService({
+    SpeechToText? speechToText,
+    FlutterTts? flutterTts,
+  })  : _speechToText = speechToText ?? SpeechToText(),
+        _flutterTts = flutterTts ?? FlutterTts();
 
   bool get isListening => _speechToText.isListening;
+  bool get isSpeaking => _isSpeaking;
+
+  /// Configures on-device Indonesian Text-to-Speech (`id-ID`) with natural pitch and pace.
+  Future<void> ensureTtsConfigured() async {
+    if (_isTtsConfigured) return;
+    try {
+      await _flutterTts.setLanguage('id-ID');
+      await _flutterTts.setPitch(1.0);
+      // Note: FlutterTts scales Android rate * 2.0f internally (0.48 * 2.0 = 0.96x natural pace).
+      await _flutterTts.setSpeechRate(0.48);
+      await _flutterTts.setVolume(1.0);
+
+      _flutterTts.setStartHandler(() {
+        _isSpeaking = true;
+        onTtsStateChanged?.call();
+      });
+      _flutterTts.setCompletionHandler(() {
+        _isSpeaking = false;
+        onTtsStateChanged?.call();
+      });
+      _flutterTts.setCancelHandler(() {
+        _isSpeaking = false;
+        onTtsStateChanged?.call();
+      });
+      _flutterTts.setPauseHandler(() {
+        _isSpeaking = false;
+        onTtsStateChanged?.call();
+      });
+      _flutterTts.setErrorHandler((_) {
+        _isSpeaking = false;
+        onTtsStateChanged?.call();
+      });
+
+      _isTtsConfigured = true;
+    } catch (e) {
+      debugPrint('VoiceIoService TTS init failed: $e');
+    }
+  }
+
+  /// Cleans markdown formatting, box lines, and symbols before speaking aloud via `flutter_tts`.
+  static String sanitizeTextForSpeech(String rawText) {
+    var clean = rawText
+        .replaceAll(RegExp(r'https?:\/\/\S+'), '')
+        .replaceAll(RegExp(r'[━─═_]{3,}'), ', ')
+        .replaceAll(RegExp(r'[*#`~>|]'), '')
+        .replaceAllMapped(
+          RegExp(r'(^|\n)\s*[•\-]\s+'),
+          (m) => m.group(1) ?? '',
+        )
+        .replaceAllMapped(
+          RegExp(r'Rp\.?\s*(\d[\d.]*)'),
+          (m) => '${m.group(1)} rupiah',
+        )
+        .replaceAll(RegExp(r'\n+'), '. ')
+        .replaceAll(RegExp(r'\s{2,}'), ' ')
+        .trim();
+    // Strip stray emoji / pictograph characters so TTS doesn't stall reading unicode descriptions
+    clean = clean
+        .replaceAll(
+          RegExp(
+            r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]',
+            unicode: true,
+          ),
+          '',
+        )
+        .replaceAll(RegExp(r'\s{2,}'), ' ')
+        .trim();
+    return clean;
+  }
+
+  /// Speaks [text] aloud natively on-device using `flutter_tts` in Indonesian (`id-ID`).
+  Future<void> speak(String text) async {
+    final cleanText = sanitizeTextForSpeech(text);
+    if (cleanText.isEmpty) return;
+
+    await stopSpeaking();
+    await ensureTtsConfigured();
+
+    try {
+      _isSpeaking = true;
+      onTtsStateChanged?.call();
+      await _flutterTts.speak(cleanText);
+    } catch (e) {
+      _isSpeaking = false;
+      onTtsStateChanged?.call();
+      debugPrint('VoiceIoService TTS speak failed: $e');
+    }
+  }
+
+  /// Immediately stops any ongoing `flutter_tts` utterance.
+  Future<void> stopSpeaking() async {
+    try {
+      await _flutterTts.stop();
+    } catch (_) {
+    } finally {
+      if (_isSpeaking) {
+        _isSpeaking = false;
+        onTtsStateChanged?.call();
+      } else {
+        _isSpeaking = false;
+      }
+    }
+  }
 
   /// Requests microphone permission and initializes on-device STT.
   Future<bool> ensurePermissionsAndInitialize({

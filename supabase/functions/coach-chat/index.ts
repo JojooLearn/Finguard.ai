@@ -3,7 +3,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthenticatedUser } from "../_shared/auth.ts";
 import { ApiError, errorResponse, jsonResponse } from "../_shared/errors.ts";
-import { callGemini, generateGeminiSpeechAudio } from "../_shared/gemini.ts";
+import { callGemini } from "../_shared/gemini.ts";
+import { callGroq, GroqMessage } from "../_shared/groq.ts";
 import {
   getUserFinancialContext,
   fetchOnDemandStockAnalysis,
@@ -71,6 +72,32 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function parseStructuredCoachResponse(raw: unknown): Record<string, any> {
+  if (raw && typeof raw === "object") {
+    return raw as Record<string, any>;
+  }
+  if (typeof raw !== "string") {
+    throw new Error("AI response is neither object nor string");
+  }
+  const cleaned = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (_) {
+    const startIdx = cleaned.indexOf("{");
+    const endIdx = cleaned.lastIndexOf("}");
+    if (startIdx !== -1 && endIdx > startIdx) {
+      return JSON.parse(cleaned.slice(startIdx, endIdx + 1));
+    }
+    throw new Error("Failed to parse structured JSON from AI response");
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -95,32 +122,6 @@ serve(async (req) => {
       request_audio,
     } = await req.json();
 
-    // Dynamic Gemini Modality & Speech Configuration based on request_audio flag
-    const geminiConfig: {
-      responseModalities: string[];
-      speechConfig?: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: string;
-          };
-        };
-      };
-    } = {
-      responseModalities: ["TEXT"],
-    };
-
-    if (request_audio === true) {
-      geminiConfig.responseModalities = ["TEXT", "AUDIO"];
-      geminiConfig.speechConfig = {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: "Puck",
-          },
-        },
-      };
-    } else {
-      geminiConfig.responseModalities = ["TEXT"];
-    }
     if ((!message || typeof message !== "string") && !receipt_path && !receipt_base64) {
       throw new ApiError("Pesan atau foto nota tidak boleh kosong", 400, "INVALID_MESSAGE");
     }
@@ -142,14 +143,23 @@ serve(async (req) => {
 
     if (existingRequest) {
       if (existingRequest.status === "completed" && existingRequest.result_reference) {
+        const cachedReply = existingRequest.result_reference.reply || "";
+        const cachedSource = existingRequest.result_reference.source_engine || "gemini";
         return jsonResponse({
-          reply: existingRequest.result_reference.reply || "",
+          success: true,
+          conversation_id: conversation_id || null,
+          message: {
+            role: "assistant",
+            content: cachedReply,
+            source_engine: cachedSource,
+          },
+          source_engine: cachedSource,
+          reply: cachedReply,
           intent: existingRequest.result_reference.intent || "general_chat",
           structured_transaction: existingRequest.result_reference.structured_transaction || null,
           needs_clarification: existingRequest.result_reference.needs_clarification || false,
           missing_fields: existingRequest.result_reference.missing_fields || [],
           confidence: existingRequest.result_reference.confidence || 0,
-          conversation_id: conversation_id || null,
           client_request_id,
           is_cached: true,
           timestamp: existingRequest.updated_at,
@@ -473,6 +483,7 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
           status: "completed",
           result_reference: {
             reply: replyText,
+            source_engine: "gemini",
             intent: isValidReceipt ? "record_expense" : "receipt_scan",
             structured_transaction: structuredTx,
             needs_clarification: false,
@@ -484,13 +495,20 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
         .eq("id", aiRequest.id);
 
       return jsonResponse({
+        success: true,
+        conversation_id: activeConversationId,
+        message: {
+          role: "assistant",
+          content: replyText,
+          source_engine: "gemini",
+        },
+        source_engine: "gemini",
         reply: replyText,
         intent: isValidReceipt ? "record_expense" : "receipt_scan",
         structured_transaction: structuredTx,
         needs_clarification: false,
         missing_fields: [],
         confidence: isValidReceipt ? 0.95 : 0.2,
-        conversation_id: activeConversationId,
         client_request_id,
         is_cached: false,
         timestamp: new Date().toISOString(),
@@ -770,21 +788,28 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     const foodRemaining = Math.max(0, foodLimit - foodSpent);
 
     const freeCash = finContext.availableFreeCash;
+    const isStockRelatedQuery =
+      isMarketNewsQuery ||
+      isIpoQuery ||
+      queriedTickers.length > 0 ||
+      isGeneralStockRecommendationQuery;
 
     const stockSignalsSummary =
       finContext.stockSignals && finContext.stockSignals.length > 0
-        ? finContext.stockSignals
-          .map((s) => {
-            const lotPrice = s.lotPrice || s.priceAtSignal * 100;
-            const maxLotsFreeCash = freeCash > 0 ? Math.floor(freeCash / lotPrice) : 0;
-            const maxLotsLiquid = finContext.availableCash > 0 ? Math.floor(finContext.availableCash / lotPrice) : 0;
-            const rsiInfo = s.rsi != null ? ` | RSI: ${s.rsi}` : "";
-            const maInfo = s.maTrend ? ` | MA: ${s.maTrend}` : "";
-            return `  • [${s.ticker} - ${s.companyName}] Sinyal: ${s.signalType} | Harga: Rp${s.priceAtSignal.toLocaleString("id-ID")}/lembar (Rp${lotPrice.toLocaleString("id-ID")}/lot)${rsiInfo}${maInfo}
+        ? isStockRelatedQuery
+          ? finContext.stockSignals
+            .map((s) => {
+              const lotPrice = s.lotPrice || s.priceAtSignal * 100;
+              const maxLotsFreeCash = freeCash > 0 ? Math.floor(freeCash / lotPrice) : 0;
+              const maxLotsLiquid = finContext.availableCash > 0 ? Math.floor(finContext.availableCash / lotPrice) : 0;
+              const rsiInfo = s.rsi != null ? ` | RSI: ${s.rsi}` : "";
+              const maInfo = s.maTrend ? ` | MA: ${s.maTrend}` : "";
+              return `  • [${s.ticker} - ${s.companyName}] Sinyal: ${s.signalType} | Harga: Rp${s.priceAtSignal.toLocaleString("id-ID")}/lembar (Rp${lotPrice.toLocaleString("id-ID")}/lot)${rsiInfo}${maInfo}
     Prospek & Alasan: "${s.technicalSummary || s.reason}"
     Keterjangkauan: Dari uang dingin bulanan bisa dapat ~${maxLotsFreeCash} lot (dari total saldo kas cair bisa ~${maxLotsLiquid} lot).`;
-          })
-          .join("\n")
+            })
+            .join("\n")
+          : `  Watchlist aktif: ${finContext.stockSignals.map((s) => `${s.ticker}(${s.signalType} Rp${s.priceAtSignal})`).join(", ")}`
         : "  (Belum ada data sinyal saham aktif di database)";
 
     const preferencesSummary = finContext.preferences
@@ -965,83 +990,20 @@ ATURAN WAJIB KLASIFIKASI INTENT:
      * JANGAN PERNAH menghitung draf transaksi yang ada di riwayat chat jika transaksi tersebut belum pernah tersimpan di database (CATATAN HISTORI TRANSAKSI DATABASE). Rujukan utama Anda adalah data riil transaksi di database, bukan pesan-pesan percakapan sebelumnya!
 
 9. PERTANYAAN SINYAL SAHAM, ORDER BOOK, BROKER SUMMARY, SENTIMEN PASAR, MSCI & SAHAM IPO (query_stock_signal):
-   Contoh Ticker Spesifik: "Gimana BBCA hari ini?", "Analisa BBCA dong", "GOTO beli gak?", "Bagaimana saham BBNI?", "kalau bbni", "coba analisa saham goto atau bbni", "coba analisa saham bumi", "Analisa order book dan broker BBCA", "Siapa broker yang akumulasi BBRI?".
-   Contoh Rekomendasi Saham Berdasarkan Dana & Pemasukan:
-   * "kalau dengan pemasukan sekarang, saya ingin membeli saham, kira kira apa yang cocok dari jumlah dana yang saya miliki sekarang dan rekomendasi dan prospek sahamnya seperti apa"
-   * "rekomendasi saham yang cocok apa ya? untuk pemasukannya yang sekarang"
-   Contoh Sentimen Pasar, Saham Viral & MSCI:
-   * "gimana sentimen pasar IHSG hari ini?", "ada berita MSCI terbaru?", "saham apa yang lagi viral/ramai?", "gimana aliran dana asing (foreign flow)?"
-   Contoh Analisis Saham IPO & Penjatahan e-IPO:
-   * "analisa saham IPO WBSA", "gimana prospek IPO PT BSA Logistics Indonesia?", "hitung penjatahan e-IPO WBSA kalau antrian 500rb SID", "gimana track record underwriter MG / HP?"
-
-   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null.
-   
-   A. JIKA PENGGUNA MENANYAKAN REKOMENDASI SAHAM BERDASARKAN PEMASUKAN & DANA RIIL PENGGUNA (WAJIB HYBRID):
-      * TAMPILKAN ANGKA RIIL DARI DATABASE:
-        - Pemasukan bulanan pengguna: Rp${finContext.monthlyIncome.toLocaleString("id-ID")}
-        - Kebutuhan pokok bulanan: Rp${finContext.essentialExpenses.toLocaleString("id-ID")}
-        - Cicilan utang: Rp${finContext.monthlyDebt.toLocaleString("id-ID")}
-        - Uang Dingin Bulanan (surplus bebas setelah kebutuhan & utang): Rp${freeCash.toLocaleString("id-ID")}
-        - Total Saldo Kas/Rekening Tersedia saat ini: Rp${finContext.availableCash.toLocaleString("id-ID")}
-        - Status Dana Darurat saat ini: Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}
-        - Profil Risiko: ${finContext.riskProfile}
-      * ATURAN EMAS MONEY MANAGEMENT COACH:
-        1) Dana Darurat First: Cek kondisi dana darurat (Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}). Jika masih 0 atau kurang dari 3x kebutuhan pokok (minimal Rp${(finContext.essentialExpenses * 3).toLocaleString("id-ID")}), tegaskan jangan masukkan seluruh dana ke saham! Alokasikan dulu tabungan darurat, dan hanya gunakan uang dingin yang siap mengendap jangka panjang.
-        2) Porsi Sehat Investasi: Anjurkan batas investasi yang wajar dari uang dingin (misal 10-20% pemasukan = Rp${Math.round(finContext.monthlyIncome * 0.1).toLocaleString("id-ID")} - Rp${Math.round(finContext.monthlyIncome * 0.2).toLocaleString("id-ID")} per bulan).
-      * WAJIB BERIKAN REKOMENDASI HYBRID (GABUNGAN SINYAL WATCHLIST DATABASE LOKAL + DATA ON-DEMAND BURSA REAL-TIME):
-        - JANGAN hanya menampilkan saham yang ada di database lokal saja!
-        - Gabungkan rekomendasi dari:
-          1) **Watchlist Sinyal TradingView Database Lokal** (BBRI, TLKM, BMRI, BBCA, ASII dari bagian DATA SINYAL TEKNIKAL LOKAL di atas), DAN
-          2) **Saham Live On-Demand Bursa (Yahoo Finance Real-Time)** yang sudah ditarik otomatis di bagian [SYSTEM CONTEXT: DATA SAHAM ON-DEMAND] di atas (seperti BBNI, BRIS, ADRO, ICBP, GOTO, dll.) lengkap dengan harga real-time per lot, nilai RSI(14), tren MA50, P/E Ratio, PBV, Order Book, dan sentimen berita terbarunya!
-      * BERIKAN STRATEGI & PROSPEK:
-        - Sebutkan secara konkret berapa lot yang realistis bisa dibeli pengguna per bulan secara disiplin sesuai uang dingin Rp${freeCash.toLocaleString("id-ID")} (1 Lot = 100 lembar saham).
-
-   B. JIKA PENGGUNA MENANYAKAN TICKER SPESIFIK ON-DEMAND ATAU PERTANYAAN LANJUTAN SAHAM (SEPERTI DEWA, BBNI, GOTO, BUMI, BRIS, BBCA, BBRI, UNVR, ATAU "DI SAHAM ITU", "BROKER SUMMARY TERAKHIR", "TANGGAL BERAPA & HARGA PENUTUPAN BERAPA", "TOTAL BID BERAPA"):
-      * PERINGATAN KERAS: DILARANG KERAS mengatakan "data saham X tidak ada di database/feed FinGuard"! Semua data di bagian [SYSTEM CONTEXT: DATA SAHAM ON-DEMAND TERVERIFIKASI] di atas adalah DATA FAKTUAL REAL-TIME dari bursa!
-      * Jika pengguna bertanya detail verifikasi spesifik (contoh: "tanggal berapa dan di harga penutupan berapa broker summary terakhir di saham itu?", "total bid berapa?", "kode broker siapa yang akumulasi?"), JAWAB LANGSUNG di kalimat pertama dengan angka presisi dari bagian [SYSTEM CONTEXT: DATA SAHAM ON-DEMAND TERVERIFIKASI] (Sebutkan Tanggal Bursa Terakhir, Harga Penutupan Close, Open/High/Low, VWAP, Total Volume Lot, Total Bid Lot vs Total Offer Lot, serta Top 3 Kode Broker Net Buy & Top 3 Kode Broker Net Sell beserta Lot dan Avg Price-nya)!
-      * Setiap kali menganalisis saham, AI Coach WAJIB membuka jawaban dengan KOTAK RANGKUMAN KEPUTUSAN KUANTITATIF berikut:
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        🎯 **RANGKUMAN ANALISIS & KEPUTUSAN [KODE TICKER]**
-        • **REKOMENDASI**: **[BUY / BUY ON WEAKNESS / WAIT & SEE / AVOID] (BUY XX% vs SELL/AVOID YY%)**
-        • **PENUTUPAN TERAKHIR ([TANGGAL BURSA])**: **Rp[Harga Close]/lembar (1 Lot = Rp[Harga Lot])**
-        • **TARGET & BATAS RISIKO**: **Target Profit [Target Range] | Stop Loss [Stop Loss Level]**
-        • **ORDER BOOK & BANDAR**: **Total Bid [X] Lot vs Offer [Y] Lot | Top Buyer: [Kode Broker]**
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      * Setelah kotak rangkuman di atas, uraikan 5 poin berbasis data lengkap:
-        1) **Harga Penutupan Terakhir, Tanggal Bursa, OHLCV & Keterjangkauan**: Sebutkan Tanggal Perdagangan Terakhir, Harga Close, Open, High, Low, Prev Close, Total Volume (Lot) & Nilai Transaksi (Rp Miliar), P/E Ratio, PBV, serta berapa lot yang terjangkau dengan uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}).
-        2) **Indikator Teknikal Server**: Nilai RSI (14 hari) beserta status Oversold/Overbought/Netral, dan Posisi Tren MA50 (Uptrend/Downtrend beserta angkanya).
-        3) **Rincian Order Book Spesifik (Total Bid & Total Offer)**: Sebutkan secara eksplisit **Total Volume Antrean BID (Lot)** vs **Total Volume Antrean OFFER (Lot)**, rasio Bid/Offer, persentase tekanan HAKA vs HAKI, serta rincian 3 level harga Bid teratas & 3 level harga Offer teratas beserta jumlah Lot dan rata-rata nilai Rupiah per antreannya.
-        4) **Rincian Broker Summary Terakhir (Kode Broker, Lot & Avg Price)**: Sebutkan tanggal bursa terakhir, status Akumulasi/Distribusi, **Top 3 Kode Broker Net Buy** (contoh: MG, YP, YU / AK, ZP, BK) lengkap dengan **jumlah Lot & harga rata-rata beli (Avg Buy Rp...)**, serta **Top 3 Kode Broker Net Sell** (contoh: EP, PD, XC) lengkap dengan **jumlah Lot & harga rata-rata jual (Avg Sell Rp...)**.
-        5) **Sentimen Berita & Aksi Korporasi Terkini** dari headline bursa yang tercantum.
-
-   C. JIKA PENGGUNA MENANYAKAN SENTIMEN PASAR, SAHAM VIRAL, REBALANCING MSCI/FTSE, ATAU OUTLOOK IHSG MAKRO:
-      * Gunakan data berita live dari bagian [SYSTEM CONTEXT: BERITA PASAR LIVE, SENTIMEN IHSG, MSCI & ISU VIRAL TERKINI] di atas.
-      * Bedah outlook IHSG dengan level-level kunci (Support psikologis 6.000, Resistance 6.340, dan potensi penutupan gap atas di area 6.557 - 6.700).
-      * Rinci arus dana asing (Foreign Net Buy / Net Sell) harian serta dampaknya terhadap IHSG.
-      * Jelaskan katalis kalender penting seperti Annual Market Classification Review MSCI (akhir Juni) dan Quarterly Index Review MSCI/FTSE yang memicu rotasi dana institusi global.
-
-   D. JIKA PENGGUNA MENANYAKAN ANALISIS SAHAM IPO (INITIAL PUBLIC OFFERING), PERHITUNGAN PENJATAHAN e-IPO, ATAU ANALISIS SUPPLY-DEMAND (MISAL: ANDA, WBSA, JELI, EMMI, SWAP, PRDL, RANS, BACH, DLL.):
-      * PERINGATAN KERAS: Emiten seperti **ANDA (PT Andalan Artha Primanusa Tbk)**, **WBSA (PT BSA Logistics Indonesia Tbk)**, **EMMI**, **JELI**, **SWAP** adalah emiten IPO NYATA di BEI! DILARANG KERAS mengatakan "kaga ada kode emiten begitu" atau "emiten siluman"!
-      * Gunakan data lengkap dari bagian [SYSTEM CONTEXT: ENGINE ANALISIS SAHAM IPO] di atas.
-      * AI Coach WAJIB membuka jawaban dengan KOTAK RANGKUMAN RADAR IPO yang tegas:
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        🎯 **RANGKUMAN RADAR [KODE TICKER - NAMA PERUSAHAAN]**
-        • **REKOMENDASI**: **BUY / SPECULATIVE BUY (78% - 80% Momentum Listing)** [atau WAIT & SEE / AVOID beserta persentasenya]
-        • **POTENSI LISTING HARI PERTAMA**: **OPEN HIGH / POTENSI 1x ARA** [+ Info Bonus Waran jika ada, misal Bonus Waran ANDA 10:1,42]
-        • **UNDERWRITER (UW)**: **[Sebutkan Kode Broker UW, misal HP - Henan Putihrai Sekuritas / MG & TP]**
-        • **PROFIL RISIKO & STRATEGI**: **HIGH RISK - MOMENTUM PLAY** (Pasang Trailing Stop bertingkat di -5%, -7%, -9%; jangan serakah)
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      * Sajikan analisis kuantitatif mendalam mencakup:
-        1) **Profil Bisnis, Sektor & Perbandingan Kompetitor** (misal untuk ANDA: kontraktor tambang batubara & nikel kompetitor DEWA, DOID, PTRO; untuk WBSA: logistik kompetitor ASSA, SMDR).
-        2) **Rincian Penawaran e-IPO, Valuasi & Pemanis Waran**: Harga Penawaran (Rp/lembar & Rp/lot, misal ANDA Rp158 - Rp189/lembar), Total Lot Ditawarkan (misal ANDA 16,76 Juta Lot / 25,10% publik), Target Dana IPO (misal ANDA Rp316,76 Miliar), serta Rasio Bonus Waran jika ada (misal ANDA pesan 10 lot dapat ~1,42 lot Bonus Waran Seri I).
-        3) **Penggunaan Dana IPO & Risiko Fundamental** (Proporsi Capex ekspansi vs Opex modal kerja vs bayar pokok utang).
-        4) **Underwriter (UW) & Track Record Historis**: Sebutkan kode broker UW (misal HP - Henan Putihrai untuk ANDA dengan track record BREN, CUAN, PTRO, RATU; atau MG & TP untuk WBSA) beserta catatan pengawasan/strategi bandarmologinya.
-        5) **Strategi Exit Ritel & Analisis Barang Kering**: Anjurkan pasang Trailing Stop (TS) bertingkat (-5%, -7%, -9%) otomatis karena antrean jual manual ritel jam 08.45 WIB kalah cepat dengan Direct Market Access (DMA) institusi.
-        6) **Kalkulasi Penjatahan Terpusat (Pooling Allotment e-IPO) OJK/BEI**:
-           - Jelaskan Golongan IPO (Golongan I s/d IV), porsi alokasi minimal, dan rasio 1:1 antara Ritel (< Rp100 Juta) vs Non-Ritel (>= Rp100 Juta).
-           - Tampilkan poin simulasi peluang penjatahan per SID berdasarkan antrean pemesan (400.000, 500.000, 600.000, 700.000–900.000, hingga >1.000.000 antrean).
-           - Berikan saran pesanan rasional ritel (cukup pesan 10 - 20 lot agar dana tidak tertahan sia-sia).
-        7) **Rekomendasi Alokasi Modal Sesuai Uang Dingin Pengguna**: Hubungkan langsung dengan kondisi uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}) dan saldo kas pengguna di FinGuard!
+${isStockRelatedQuery ? `   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null.
+${isGeneralStockRecommendationQuery ? `   A. JIKA PENGGUNA MENANYAKAN REKOMENDASI SAHAM BERDASARKAN PEMASUKAN & DANA RIIL PENGGUNA (WAJIB HYBRID):
+      * TAMPILKAN ANGKA RIIL DARI DATABASE: Pemasukan Rp${finContext.monthlyIncome.toLocaleString("id-ID")}, Kebutuhan pokok Rp${finContext.essentialExpenses.toLocaleString("id-ID")}, Cicilan Rp${finContext.monthlyDebt.toLocaleString("id-ID")}, Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Profil Risiko ${finContext.riskProfile}.
+      * ATURAN EMAS: Dana Darurat First (minimal 3x kebutuhan = Rp${(finContext.essentialExpenses * 3).toLocaleString("id-ID")}) sebelum alokasi saham; anjurkan porsi sehat 10-20% pemasukan.
+      * GABUNGKAN Watchlist Sinyal TradingView Lokal DAN Saham Live On-Demand Bursa (BBNI, BRIS, ADRO, ICBP, GOTO, dll.) lengkap dengan perkiraan jumlah lot terjangkau (1 Lot = 100 lembar).` : ""}
+${queriedTickers.length > 0 && !isIpoQuery ? `   B. JIKA PENGGUNA MENANYAKAN TICKER SPESIFIK ON-DEMAND ATAU LANJUTAN:
+      * DILARANG mengatakan "data saham X tidak ada di database"! Gunakan DATA SAHAM ON-DEMAND TERVERIFIKASI di atas.
+      * Jawab pertanyaan verifikasi spesifik di kalimat pertama jika ditanya.
+      * Buka jawaban dengan KOTAK RANGKUMAN KEPUTUSAN KUANTITATIF (Rekomendasi %, Penutupan Terakhir & 1 Lot, Target Profit & Stop Loss, Total Bid vs Offer & Top Buyer), lalu uraikan 5 poin berbasis data (OHLCV & Keterjangkauan lot, RSI & MA50, Rincian Order Book 3 level, Rincian Top 3 Broker Net Buy/Sell, Sentimen Berita).` : ""}
+${isMarketNewsQuery && queriedTickers.length === 0 && !isIpoQuery ? `   C. JIKA PENGGUNA MENANYAKAN SENTIMEN PASAR, SAHAM VIRAL, REBALANCING MSCI/FTSE, ATAU IHSG MAKRO:
+      * Gunakan data berita live di atas, bedah outlook IHSG (Support 6.000, Resistance 6.340, area 6.557 - 6.700), arus dana asing, dan katalis MSCI/FTSE.` : ""}
+${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JELI, EMMI, SWAP, dll.):
+      * Emiten tersebut adalah emiten IPO NYATA di BEI! Gunakan DATA ENGINE ANALISIS SAHAM IPO di atas.
+      * Buka dengan KOTAK RANGKUMAN RADAR IPO (Rekomendasi, Potensi Listing & Bonus Waran, Underwriter, Profil Risiko & Trailing Stop bertingkat -5%, -7%, -9%), lalu uraikan Profil & Kompetitor, Valuasi & Waran, Penggunaan Dana, Track Record UW, Strategi Exit, Simulasi Pooling e-IPO OJK/BEI (Golongan I-IV), dan Rekomendasi Alokasi Modal sesuai uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}).` : ""}` : `   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null. Berikan ringkasan watchlist saham & hitung keterjangkauan lot berdasarkan uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}).`}
 
 10. PERCAKAPAN UMUM, SAPAAN, ATAU CHAT BEBAS (NATURAL CONVERSATION):
    Contoh: "hai", "halo", "pagi", "lagi apa?", "siapa kamu?", "tips hemat dong", "ceritain cara nabung", dsb.
@@ -1050,16 +1012,23 @@ ATURAN WAJIB KLASIFIKASI INTENT:
    - Jawab pertanyaan seputar tips finansial atau obrolan santai tanpa memaksakan template angka.
    - needs_clarification = false, structured_transaction = null, intent = "general_chat".`;
 
-    // --- Build Multi-turn Contents with Recent History ---
-    const conversationContents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+    // --- Build Multi-turn Contents for Dual-Engine Execution (Groq Primary + Gemini Backup) ---
+    const conversationContents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
+    const groqMessages: GroqMessage[] = [];
 
     if (historyArray.length > 0) {
       for (const item of historyArray) {
-        const role = item.sender === "user" || item.role === "user" ? "user" : "model";
+        const isUserTurn = item.sender === "user" || item.role === "user";
         if (item.content && typeof item.content === "string") {
           conversationContents.push({
-            role,
+            role: isUserTurn ? "user" : "model",
             parts: [{ text: item.content }],
+          });
+          groqMessages.push({
+            role: isUserTurn ? "user" : "assistant",
+            content: item.content.length > 500
+              ? `${item.content.slice(0, 500)}...`
+              : item.content,
           });
         }
       }
@@ -1069,36 +1038,136 @@ ATURAN WAJIB KLASIFIKASI INTENT:
       role: "user",
       parts: [{ text: message }],
     });
+    groqMessages.push({
+      role: "user",
+      content: message,
+    });
 
-    let aiResult: any;
+    const groqPersonaRule = strictness >= 4
+      ? `MODE KRITIS / ROAST (Level ${strictness}/5): Sohib tongkrongan super ceplas-ceplos, tajam, blak-blakan (lu/gue) tanpa basa-basi manis saat pengguna boros. Tetap faktual berbasis angka.`
+      : strictness <= 2
+      ? `TEMAN SANTAI & RAMAH (Level ${strictness}/5): Hangat, suportif, akrab seperti teman ngopi (kamu/aku atau santai).`
+      : `TEMAN DISIPLIN & REALISTIS (Level 3/5): Akrab khas tongkrongan, objektif dan tegas mengingatkan kondisi dompet.`;
+
+    const compactGroqPrompt = `Anda AI Financial Coach FinGuard untuk ${finContext.displayName}. Bahasa Indonesia santai, rapi, maksimal 0-1 emoji, hindari istilah kaku (pakai "uang dingin", "sisa jatah belanja", "boncos", "celengan").
+${groqPersonaRule}
+
+DATA KEUANGAN REAL-TIME (${finContext.todayStr}, WIB UTC+7):
+- Sisa Bersih Bulan Ini: ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")} | Pemasukan: Rp${finContext.monthlyTotalIncome.toLocaleString("id-ID")} | Pengeluaran: Rp${finContext.monthlyTotalExpense.toLocaleString("id-ID")}
+- Hari Ini (${finContext.todayStr}): Rp${finContext.todayExpenses.toLocaleString("id-ID")} (Makan: Rp${finContext.todayFoodExpense.toLocaleString("id-ID")}) | Kemarin (${finContext.yesterdayStr}): Rp${finContext.yesterdayExpenses.toLocaleString("id-ID")} (Makan: Rp${finContext.yesterdayFoodExpense.toLocaleString("id-ID")})
+- Profil: Income Rp${finContext.monthlyIncome.toLocaleString("id-ID")}/${finContext.incomeFrequency}, Kebutuhan Rp${finContext.essentialExpenses.toLocaleString("id-ID")}, Cicilan Rp${finContext.monthlyDebt.toLocaleString("id-ID")}, Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas Cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Risiko ${finContext.riskProfile}
+- Rekening/Dompet:\n${accountsSummary}
+- Jatah Belanja Aktif:\n${budgetSummary || "  (Belum diatur)"}
+- Celengan/Goals:\n${goalSummary}
+- Cicilan Utang:\n${debtsSummary}
+- Transaksi Hari Ini:\n${todayTxList}
+- Transaksi Kemarin:\n${yesterdayTxList}
+- Riwayat Terbaru:\n${finContext.recentTransactions.slice(0, 5).map((tx) => `  • [${tx.date}] ${tx.category} (${tx.note || "-"}): ${tx.transactionType === "income" ? "+" : "-"}Rp${tx.amount.toLocaleString("id-ID")}`).join("\n") || "  (Kosong)"}
+- Watchlist Saham: ${stockSignalsSummary}
+
+ATURAN INTENT:
+1. Pertanyaan saldo/pengeluaran/budget/celengan/utang/estimasi bertahan -> jawab presisi dari data di atas (JANGAN halusinasi dari riwayat chat), structured_transaction = null, needs_clarification = false.
+2. Konsultasi pembelian -> hitung kecukupan uang dingin & kas cair; structured_transaction = null, needs_clarification = false.
+3. Perintah mencatat transaksi nyata ("makan siang 35rb", "gaji masuk 5jt") -> isi structured_transaction; needs_clarification = true HANYA jika nominal lupa disebut. Jangan bilang "sudah tersimpan", arahkan klik Simpan pada kartu konfirmasi.
+4. Sapaan / chat santai -> balas natural & akrab, intent = "general_chat", structured_transaction = null.
+
+WAJIB BALAS HANYA SATU OBJEK JSON VALID (tanpa markdown/teks luar):
+{
+  "intent": "record_expense | record_income | query_financial_status | query_budget | query_goal | purchase_consultation | query_stock_signal | general_chat",
+  "reply": "string",
+  "structured_transaction": { "type": "expense | income", "amount": 0, "currency": "IDR", "transaction_date": "${finContext.todayStr}", "category_suggestion": "string", "note": "string" } | null,
+  "needs_clarification": false,
+  "missing_fields": [],
+  "confidence": 0.95
+}`;
+
+    const groqSystemPrompt = isStockRelatedQuery
+      ? `${systemPrompt}
+
+ATURAN FORMAT OUTPUT JSON WAJIB:
+Keluaran HARUS berupa SATU objek JSON valid (tanpa teks tambahan atau markdown) dengan struktur persis:
+{
+  "intent": "record_expense | record_income | query_financial_status | query_budget | query_goal | purchase_consultation | query_stock_signal | general_chat",
+  "reply": "string (balasan Coach dalam Bahasa Indonesia yang natural sesuai aturan di atas)",
+  "structured_transaction": {
+    "type": "expense | income",
+    "amount": 0,
+    "currency": "IDR",
+    "transaction_date": "YYYY-MM-DD",
+    "category_suggestion": "string",
+    "note": "string"
+  },
+  "needs_clarification": false,
+  "missing_fields": [],
+  "confidence": 0.95
+}
+PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah mencatat transaksi nyata.`
+      : compactGroqPrompt;
+
+    let aiResult: Record<string, any> = {};
+    let sourceEngine: "groq" | "gemini" = "groq";
     let aiStatus = "completed";
     let errorCode: string | null = null;
 
+    // Circuit Breaker: Attempt 1 -> Groq Primary (4s strict timeout); Attempt 2 -> Gemini Backup (pure TEXT)
     try {
-      const rawResponse = await callGemini({
-        systemInstruction: systemPrompt,
-        contents: conversationContents,
+      const startMs = Date.now();
+      const groqRaw = await callGroq({
+        systemInstruction: groqSystemPrompt,
+        messages: groqMessages,
         temperature: strictness >= 4 ? 0.6 : 0.2,
-        responseSchema: STRUCTURED_EXTRACTION_SCHEMA,
+        jsonMode: true,
+        timeoutMs: 4000,
       });
-
-      aiResult = typeof rawResponse === "string" ? JSON.parse(rawResponse) : rawResponse;
-    } catch (aiError) {
-      aiStatus = "failed";
-      errorCode = aiError instanceof ApiError ? aiError.code : "AI_PARSE_ERROR";
-      const detailMsg = aiError instanceof Error ? aiError.message : String(aiError);
-      console.error("callGemini error:", detailMsg);
-
-      await supabaseClient
-        .from("ai_requests")
-        .update({ status: "failed", error_code: errorCode, updated_at: new Date().toISOString() })
-        .eq("id", aiRequest.id);
-
-      throw new ApiError(
-        `Gagal memproses pesan dengan AI: ${detailMsg}`,
-        502,
-        "AI_PROCESSING_FAILED"
+      const parsedGroq = parseStructuredCoachResponse(groqRaw);
+      if (
+        !parsedGroq ||
+        typeof parsedGroq.reply !== "string" ||
+        parsedGroq.reply.trim().length === 0
+      ) {
+        throw new Error("Groq returned empty or invalid reply field");
+      }
+      aiResult = parsedGroq;
+      sourceEngine = "groq";
+      console.log(
+        `[coach-chat] Dual-Engine OK: source_engine=groq latency_ms=${Date.now() - startMs}`
       );
+    } catch (groqErr: any) {
+      const groqReason = groqErr instanceof Error ? groqErr.message : String(groqErr);
+      console.warn(
+        `[coach-chat] Groq failed/timed out (${groqReason}), failing over to Gemini Backup Engine`
+      );
+      sourceEngine = "gemini";
+
+      try {
+        const startMs = Date.now();
+        const geminiRaw = await callGemini({
+          systemInstruction: systemPrompt,
+          contents: conversationContents,
+          temperature: strictness >= 4 ? 0.6 : 0.2,
+          responseSchema: STRUCTURED_EXTRACTION_SCHEMA,
+        });
+        aiResult = parseStructuredCoachResponse(geminiRaw);
+        console.log(
+          `[coach-chat] Dual-Engine Failover OK: source_engine=gemini latency_ms=${Date.now() - startMs}`
+        );
+      } catch (geminiErr: any) {
+        aiStatus = "failed";
+        errorCode = geminiErr instanceof ApiError ? geminiErr.code : "AI_PARSE_ERROR";
+        const detailMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
+        console.error("[coach-chat] Both Groq & Gemini failed:", detailMsg);
+
+        await supabaseClient
+          .from("ai_requests")
+          .update({ status: "failed", error_code: errorCode, updated_at: new Date().toISOString() })
+          .eq("id", aiRequest.id);
+
+        throw new ApiError(
+          `Gagal memproses pesan dengan AI: ${detailMsg}`,
+          502,
+          "AI_PROCESSING_FAILED"
+        );
+      }
     }
 
     const needsClarification = aiResult.needs_clarification === true;
@@ -1112,28 +1181,21 @@ ATURAN WAJIB KLASIFIKASI INTENT:
       aiStatus = "needs_clarification";
     }
 
-    // Generate AI Voice-Out ONLY when request_audio === true (Bandwidth & Compute Isolation)
-    let audioBase64: string | null = null;
-    if (request_audio === true && aiResult.reply) {
-      audioBase64 = await generateGeminiSpeechAudio(
-        aiResult.reply,
-        geminiConfig.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName || "Puck"
-      );
-    }
-
-    const structuredTxPayload = hasTransaction && !needsClarification ? aiResult.structured_transaction : null;
-    const assistantMetadata = structuredTxPayload
-      ? (audioBase64 ? { ...structuredTxPayload, audio_base64: audioBase64 } : structuredTxPayload)
-      : (audioBase64 ? { audio_base64: audioBase64 } : {});
+    const replyText = String(aiResult.reply || "").trim();
+    const structuredTxPayload =
+      hasTransaction && !needsClarification ? aiResult.structured_transaction : null;
+    const assistantMetadata: Record<string, unknown> = structuredTxPayload
+      ? { ...structuredTxPayload, source_engine: sourceEngine }
+      : { source_engine: sourceEngine };
 
     const resultRef: Record<string, unknown> = {
-      reply: aiResult.reply,
-      intent: aiResult.intent,
+      reply: replyText,
+      source_engine: sourceEngine,
+      intent: aiResult.intent || "general_chat",
       structured_transaction: structuredTxPayload,
       needs_clarification: needsClarification,
       missing_fields: aiResult.missing_fields || [],
       confidence: aiResult.confidence || 0,
-      ...(audioBase64 ? { audio_base64: audioBase64 } : {}),
     };
 
     // Persist messages to chat_messages table
@@ -1176,7 +1238,7 @@ ATURAN WAJIB KLASIFIKASI INTENT:
             conversation_id: activeConversationId,
             user_id: user.id,
             role: "assistant",
-            content: aiResult.reply || "",
+            content: replyText,
             message_status: needsClarification ? "needs_clarification" : "completed",
             metadata: assistantMetadata,
           })
@@ -1191,7 +1253,7 @@ ATURAN WAJIB KLASIFIKASI INTENT:
               conversation_id: activeConversationId,
               user_id: user.id,
               role: "assistant",
-              content: aiResult.reply || "",
+              content: replyText,
             })
             .select("id")
             .maybeSingle();
@@ -1205,7 +1267,9 @@ ATURAN WAJIB KLASIFIKASI INTENT:
     // Check if recorded expense triggers budget warning push notification (< 10% remaining)
     if (hasTransaction && aiResult.structured_transaction?.type === "expense") {
       try {
-        const txCat = aiResult.structured_transaction.category_name;
+        const txCat =
+          aiResult.structured_transaction.category_suggestion ||
+          aiResult.structured_transaction.category_name;
         const matchingBudget = finContext.activeBudgets.find((b) =>
           b.category.toLowerCase().includes((txCat || "").toLowerCase())
         );
@@ -1237,14 +1301,20 @@ ATURAN WAJIB KLASIFIKASI INTENT:
       .eq("id", aiRequest.id);
 
     return jsonResponse({
-      reply: aiResult.reply || "",
+      success: true,
+      conversation_id: activeConversationId,
+      message: {
+        role: "assistant",
+        content: replyText,
+        source_engine: sourceEngine,
+      },
+      source_engine: sourceEngine,
+      reply: replyText,
       intent: aiResult.intent || "general_chat",
       structured_transaction: structuredTxPayload,
       needs_clarification: needsClarification,
       missing_fields: aiResult.missing_fields || [],
       confidence: aiResult.confidence || 0,
-      ...(audioBase64 ? { audio_base64: audioBase64 } : {}),
-      conversation_id: activeConversationId,
       client_request_id,
       timestamp: new Date().toISOString(),
     });

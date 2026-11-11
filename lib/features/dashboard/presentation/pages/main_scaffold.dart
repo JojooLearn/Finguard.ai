@@ -42,7 +42,10 @@ class _MainScaffoldState extends State<MainScaffold> {
         onSwitchTab: _switchTab,
       ),
       const TransactionListPage(),
-      CoachPage(isKeyboardOpen: isKeyboardOpen),
+      CoachPage(
+        isKeyboardOpen: isKeyboardOpen,
+        isActive: _currentIndex == 2,
+      ),
       const BudgetPage(),
       const ProfilePage(),
     ];
@@ -53,28 +56,36 @@ class _MainScaffoldState extends State<MainScaffold> {
           context.go('/login');
         }
       },
-      child: Scaffold(
-        extendBody: true,
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: AppColors.screenBackground,
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: IndexedStack(
-              index: _currentIndex,
-              children: pages,
+      child: PopScope(
+        canPop: _currentIndex == 0,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && _currentIndex != 0) {
+            _switchTab(0);
+          }
+        },
+        child: Scaffold(
+          extendBody: true,
+          body: Container(
+            decoration: const BoxDecoration(
+              gradient: AppColors.screenBackground,
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: IndexedStack(
+                index: _currentIndex,
+                children: pages,
+              ),
             ),
           ),
+          bottomNavigationBar: isKeyboardOpen
+              ? const SizedBox.shrink()
+              : FloatingNavBar(
+                  currentIndex: _currentIndex,
+                  onTap: (index) {
+                    setState(() => _currentIndex = index);
+                  },
+                ),
         ),
-        bottomNavigationBar: isKeyboardOpen
-            ? const SizedBox.shrink()
-            : FloatingNavBar(
-                currentIndex: _currentIndex,
-                onTap: (index) {
-                  setState(() => _currentIndex = index);
-                },
-              ),
       ),
     );
   }

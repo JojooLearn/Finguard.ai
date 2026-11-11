@@ -27,23 +27,31 @@ import '../widgets/voice_listening_modal.dart';
 
 class CoachPage extends StatefulWidget {
   final bool? isKeyboardOpen;
+  final bool isActive;
+  final VoiceIoService? voiceIoService;
 
-  const CoachPage({super.key, this.isKeyboardOpen});
+  const CoachPage({
+    super.key,
+    this.isKeyboardOpen,
+    this.isActive = true,
+    this.voiceIoService,
+  });
 
   @override
   State<CoachPage> createState() => _CoachPageState();
 }
 
-class _CoachPageState extends State<CoachPage> {
+class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final ReceiptScannerService _scannerService = ReceiptScannerService();
-  final VoiceIoService _voiceIoService = VoiceIoService();
+  late final VoiceIoService _voiceIoService;
 
   AudioPlayer? _audioPlayer;
   StreamSubscription<PlayerState>? _playerStateSub;
   String? _activePlayingMessageId;
   bool _isAudioPlaying = false;
+  bool _isTtsSpeaking = false;
   String? _lastAutoPlayedMessageId;
 
   bool _hasInputText = false;
@@ -58,10 +66,25 @@ class _CoachPageState extends State<CoachPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _voiceIoService = widget.voiceIoService ?? VoiceIoService();
+    _voiceIoService.onTtsStateChanged = () {
+      if (!mounted) return;
+      setState(() {
+        _isTtsSpeaking = _voiceIoService.isSpeaking;
+      });
+    };
     _textController.addListener(_onTextChanged);
     final cubit = context.read<CoachCubit>();
     if (cubit.state is CoachInitial) {
       cubit.loadChatHistory();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _stopActiveVoiceOut();
     }
   }
 
@@ -108,28 +131,50 @@ class _CoachPageState extends State<CoachPage> {
     return player;
   }
 
+  Future<void> _stopActiveVoiceOut() async {
+    await _voiceIoService.stopSpeaking();
+    try {
+      await _audioPlayer?.stop();
+    } catch (_) {}
+    if (mounted) {
+      setState(() {
+        _isAudioPlaying = false;
+        _isTtsSpeaking = false;
+      });
+    }
+  }
+
   Future<void> _togglePlayMessageAudio(ChatMessageEntity message) async {
+    final isCurrentTtsPlaying =
+        _activePlayingMessageId == message.id && _isTtsSpeaking;
+    final isCurrentWavPlaying =
+        _activePlayingMessageId == message.id && _isAudioPlaying;
+
+    if (isCurrentTtsPlaying || isCurrentWavPlaying) {
+      await _stopActiveVoiceOut();
+      return;
+    }
+
+    await _stopActiveVoiceOut();
+    if (mounted) {
+      setState(() {
+        _activePlayingMessageId = message.id;
+      });
+    }
+
+    // Primary: On-Device TTS (`flutter_tts`) when triggered by Voice-In or pure text message
+    if (message.isVoiceOut || message.effectiveAudioBase64 == null) {
+      await _voiceIoService.speak(message.content);
+      return;
+    }
+
+    // Legacy fallback: In-memory AudioPlayer for historical messages with base64 WAV
     final base64Str = message.effectiveAudioBase64;
     if (base64Str == null || base64Str.isEmpty) return;
 
     try {
       final player = _getOrCreateAudioPlayer();
-      if (_activePlayingMessageId == message.id) {
-        if (player.playing) {
-          await player.pause();
-          if (mounted) setState(() => _isAudioPlaying = false);
-        } else {
-          await player.play();
-          if (mounted) setState(() => _isAudioPlaying = true);
-        }
-        return;
-      }
-
-      await player.stop();
-      setState(() {
-        _activePlayingMessageId = message.id;
-        _isAudioPlaying = true;
-      });
+      if (mounted) setState(() => _isAudioPlaying = true);
 
       final source = InMemoryWavAudioSource.fromBase64(
         base64Str,
@@ -148,6 +193,7 @@ class _CoachPageState extends State<CoachPage> {
   }
 
   void _toggleVoiceInput() {
+    _stopActiveVoiceOut();
     VoiceListeningModal.show(
       context: context,
       voiceIoService: _voiceIoService,
@@ -162,6 +208,9 @@ class _CoachPageState extends State<CoachPage> {
     super.didUpdateWidget(oldWidget);
     if (widget.isKeyboardOpen == true && oldWidget.isKeyboardOpen != true) {
       _scrollToBottom();
+    }
+    if (oldWidget.isActive && !widget.isActive) {
+      _stopActiveVoiceOut();
     }
   }
 
@@ -383,6 +432,8 @@ class _CoachPageState extends State<CoachPage> {
     final shouldRequestAudio =
         forceRequestAudio ?? (presetText == null && _isVoiceOrigin);
 
+    _stopActiveVoiceOut();
+
     if (_isListeningVoice) {
       await _voiceIoService.stopListening();
     }
@@ -459,7 +510,16 @@ class _CoachPageState extends State<CoachPage> {
   }
 
   @override
+  void deactivate() {
+    _stopActiveVoiceOut();
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _voiceIoService.onTtsStateChanged = null;
+    _voiceIoService.stopSpeaking();
     _textController.removeListener(_onTextChanged);
     _playerStateSub?.cancel();
     _audioPlayer?.dispose();
@@ -483,7 +543,11 @@ class _CoachPageState extends State<CoachPage> {
       }
     } catch (_) {}
 
-    return Column(
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        _stopActiveVoiceOut();
+      },
+      child: Column(
       children: [
         // Top Header (finguard_desig.md 7.4)
         Padding(
@@ -556,13 +620,18 @@ class _CoachPageState extends State<CoachPage> {
                 children: [
                   AppIconButton(
                     icon: PhosphorIcons.plus(),
-                    onPressed: () =>
-                        context.read<CoachCubit>().startNewConversation(),
+                    onPressed: () {
+                      _stopActiveVoiceOut();
+                      context.read<CoachCubit>().startNewConversation();
+                    },
                   ),
                   const SizedBox(width: 10),
                   AppIconButton(
                     icon: PhosphorIcons.clockCounterClockwise(),
-                    onPressed: () => context.push('/coach/history'),
+                    onPressed: () {
+                      _stopActiveVoiceOut();
+                      context.push('/coach/history');
+                    },
                   ),
                 ],
               ),
@@ -578,9 +647,11 @@ class _CoachPageState extends State<CoachPage> {
                 _scrollToBottom();
                 if (!state.isSending && state.messages.isNotEmpty) {
                   final latest = state.messages.last;
-                  if (!latest.isUser &&
-                      latest.hasAudio &&
-                      _lastAutoPlayedMessageId != latest.id) {
+                  final shouldAutoSpeak = !latest.isUser &&
+                      widget.isActive &&
+                      (latest.autoSpeak || latest.hasAudio) &&
+                      _lastAutoPlayedMessageId != latest.id;
+                  if (shouldAutoSpeak) {
                     _lastAutoPlayedMessageId = latest.id;
                     _togglePlayMessageAudio(latest);
                   }
@@ -826,6 +897,7 @@ class _CoachPageState extends State<CoachPage> {
           },
         ),
       ],
+    ),
     );
   }
 
@@ -878,7 +950,7 @@ class _CoachPageState extends State<CoachPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (message.hasAudio) ...[
+                if (message.hasVoiceOutput) ...[
                   _buildMiniAudioPlayer(message),
                   const SizedBox(height: 10),
                 ],
@@ -912,7 +984,7 @@ class _CoachPageState extends State<CoachPage> {
   /// Mini Audio Player inside the AI Chat Bubble for Voice-Out responses
   Widget _buildMiniAudioPlayer(ChatMessageEntity message) {
     final isCurrentPlaying =
-        _activePlayingMessageId == message.id && _isAudioPlaying;
+        _activePlayingMessageId == message.id && (_isTtsSpeaking || _isAudioPlaying);
 
     return GestureDetector(
       key: Key('mini_audio_player_${message.id}'),

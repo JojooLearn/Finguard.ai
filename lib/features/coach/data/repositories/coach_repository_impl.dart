@@ -18,7 +18,6 @@ import '../../../transactions/domain/repositories/transaction_repository.dart';
 import '../../domain/entities/chat_conversation_entity.dart';
 import '../../domain/entities/chat_message_entity.dart';
 import '../../domain/repositories/coach_repository.dart';
-import '../../domain/services/voice_io_service.dart';
 
 class CoachRepositoryImpl implements CoachRepository {
   final SupabaseClient client;
@@ -441,8 +440,18 @@ class CoachRepositoryImpl implements CoachRepository {
             .timeout(const Duration(seconds: 20));
 
         if (res.data != null && res.data is Map) {
-          final data = res.data as Map<String, dynamic>;
-          coachReply = data['reply']?.toString() ?? '';
+          final data = Map<String, dynamic>.from(res.data as Map);
+          final msgMap = data['message'] is Map
+              ? Map<String, dynamic>.from(data['message'] as Map)
+              : null;
+          coachReply = msgMap?['content']?.toString() ??
+              data['reply']?.toString() ??
+              '';
+          final sourceEngine = msgMap?['source_engine']?.toString() ??
+              data['source_engine']?.toString();
+          if (sourceEngine != null && sourceEngine.isNotEmpty) {
+            debugPrint('[coach-chat] AI response from source_engine=$sourceEngine');
+          }
           needsClarification = data['needs_clarification'] == true;
           if (data['missing_fields'] is List) {
             missingFields = (data['missing_fields'] as List)
@@ -453,12 +462,6 @@ class CoachRepositoryImpl implements CoachRepository {
             structuredData = Map<String, dynamic>.from(
               data['structured_transaction'] as Map,
             );
-          }
-          if (requestAudio && data['audio_base64'] != null) {
-            final serverAudio = data['audio_base64'].toString().trim();
-            if (serverAudio.isNotEmpty) {
-              audioBase64 = serverAudio;
-            }
           }
           if (needsClarification) {
             messageStatus = ChatMessageStatus.needsClarification;
@@ -494,17 +497,16 @@ class CoachRepositoryImpl implements CoachRepository {
       }
     }
 
-    // Ensure strict Contextual Voice I/O contract:
-    // - requestAudio == true  -> audioBase64 is ALWAYS populated (server Gemini TTS or synthesized WAV fallback)
-    // - requestAudio == false -> audioBase64 is STRICTLY null (Zero bandwidth/memory overhead)
+    // Communication Mirroring Contract (On-Device TTS):
+    // Server returns pure text only (no audio_base64 bandwidth overhead).
+    // - requestAudio == true  -> marks message with voice_out & triggers on-device flutter_tts
+    // - requestAudio == false -> silent mode (no TTS)
+    audioBase64 = null;
     if (requestAudio) {
-      if (audioBase64 == null || audioBase64.isEmpty) {
-        audioBase64 = VoiceIoService.generateSynthesizedCoachVoiceWavBase64(
-          coachReply,
-        );
-      }
-    } else {
-      audioBase64 = null;
+      structuredData = {
+        ...?structuredData,
+        'voice_out': true,
+      };
     }
 
     // 4. Direct Client DB Persistence to Supabase (Fallback ONLY if Edge Function was not used or failed)
@@ -621,6 +623,7 @@ class CoachRepositoryImpl implements CoachRepository {
       needsClarification: needsClarification,
       missingFields: missingFields,
       audioBase64: audioBase64,
+      autoSpeak: requestAudio,
     );
 
     _localChatHistory.add(assistantMsg);
