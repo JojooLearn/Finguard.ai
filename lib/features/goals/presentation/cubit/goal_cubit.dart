@@ -11,8 +11,18 @@ class GoalCubit extends Cubit<GoalState> {
   Future<void> loadGoals() async {
     emit(const GoalLoading());
     final result = await goalRepository.getGoals();
+    Map<String, double> monthlyTransfers = const {};
+    try {
+      final transferResult = await goalRepository.getMonthlySavingsTransfers();
+      transferResult.fold(
+        (transfers) => monthlyTransfers = transfers,
+        (_) {},
+      );
+    } catch (_) {}
     result.fold(
-      (goals) => emit(GoalLoaded(goals)),
+      (goals) => emit(
+        GoalLoaded(goals, monthlySavingsTransfers: monthlyTransfers),
+      ),
       (failure) => emit(GoalError(failure.message)),
     );
   }
@@ -34,9 +44,9 @@ class GoalCubit extends Cubit<GoalState> {
       priority: priority,
     );
 
-    result.fold(
+    await result.fold<Future<void>>(
       (_) => loadGoals(),
-      (failure) => emit(GoalError(failure.message)),
+      (failure) async => emit(GoalError(failure.message)),
     );
   }
 
@@ -53,17 +63,17 @@ class GoalCubit extends Cubit<GoalState> {
       note: note,
     );
 
-    result.fold(
+    await result.fold<Future<void>>(
       (_) => loadGoals(),
-      (failure) => emit(GoalError(failure.message)),
+      (failure) async => emit(GoalError(failure.message)),
     );
   }
 
   Future<void> deleteGoal(String goalId) async {
     final result = await goalRepository.deleteGoal(goalId);
-    result.fold(
+    await result.fold<Future<void>>(
       (_) => loadGoals(),
-      (failure) => emit(GoalError(failure.message)),
+      (failure) async => emit(GoalError(failure.message)),
     );
   }
 

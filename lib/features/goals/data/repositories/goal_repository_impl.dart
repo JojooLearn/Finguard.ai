@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/errors/failure.dart';
 import '../../../../core/result/result.dart';
+import '../../../../core/utils/financial_calculator.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/repositories/goal_repository.dart';
 
@@ -9,6 +10,7 @@ class GoalRepositoryImpl implements GoalRepository {
 
   // Zero-Tolerance: No dummy seed goals. Goals are created strictly by the user.
   final List<GoalEntity> _localGoals = [];
+  final Map<String, double> _localMonthlyTransfers = {};
 
   GoalRepositoryImpl(this.client);
 
@@ -67,6 +69,47 @@ class GoalRepositoryImpl implements GoalRepository {
     }
 
     return Success(List.unmodifiable(_localGoals));
+  }
+
+  @override
+  Future<Result<Map<String, double>>> getMonthlySavingsTransfers() async {
+    try {
+      final user = client.auth.currentUser;
+      if (user != null) {
+        final response = await client
+            .from('goal_contributions')
+            .select('amount, contribution_date, note')
+            .eq('user_id', user.id)
+            .order('contribution_date', ascending: false)
+            .limit(500);
+
+        final Map<String, double> grouped = {};
+        for (final row in (response as List)) {
+          final note = row['note']?.toString();
+          if (FinancialCalculator.isInitialSeedContributionNote(note)) continue;
+          final rawDate = row['contribution_date']?.toString() ?? '';
+          final dateStr = rawDate.split('T').first;
+          if (dateStr.length < 7) continue;
+          final monthKey = dateStr.substring(0, 7);
+          final amt = (row['amount'] as num?)?.toDouble() ?? 0.0;
+          grouped[monthKey] = (grouped[monthKey] ?? 0.0) + amt;
+        }
+        _localMonthlyTransfers
+          ..clear()
+          ..addAll(grouped);
+        return Success(Map.unmodifiable(grouped));
+      }
+    } catch (_) {
+      // Fallback to local tracked transfers
+    }
+    return Success(Map.unmodifiable(_localMonthlyTransfers));
+  }
+
+  void _recordLocalMonthlyTransfer(DateTime? date, double amount, String? note) {
+    if (FinancialCalculator.isInitialSeedContributionNote(note)) return;
+    final dt = date ?? DateTime.now();
+    final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
+    _localMonthlyTransfers[key] = (_localMonthlyTransfers[key] ?? 0.0) + amount;
   }
 
   @override
@@ -318,12 +361,14 @@ class GoalRepositoryImpl implements GoalRepository {
         if (index != -1 && index < _localGoals.length) {
           _localGoals[index] = syncedGoal;
         }
+        _recordLocalMonthlyTransfer(date, amount, note);
         return Success(syncedGoal);
       }
     } catch (_) {
       // Return local entity
     }
 
+    _recordLocalMonthlyTransfer(date, amount, note);
     return Success(updatedGoal);
   }
 

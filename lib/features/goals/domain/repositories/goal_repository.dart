@@ -3,6 +3,7 @@ import '../entities/goal_entity.dart';
 
 abstract class GoalRepository {
   Future<Result<List<GoalEntity>>> getGoals();
+  Future<Result<Map<String, double>>> getMonthlySavingsTransfers();
   Future<Result<GoalEntity>> createGoal({
     required String name,
     required GoalType type,

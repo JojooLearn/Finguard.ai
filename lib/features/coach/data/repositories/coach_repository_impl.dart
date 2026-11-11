@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -955,11 +954,31 @@ class CoachRepositoryImpl implements CoachRepository {
       }
     }
 
+    final monthStartStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
+    final lastDay = DateTime(now.year, now.month + 1, 0).day;
+    final monthEndStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
+    double currentMonthContribSum = 0.0;
+    for (final c in contributions) {
+      final note = c['note']?.toString();
+      if (FinancialCalculator.isInitialSeedContributionNote(note)) continue;
+      final dateStr = c['contribution_date']?.toString().split('T').first ?? '';
+      if (dateStr.compareTo(monthStartStr) >= 0 &&
+          dateStr.compareTo(monthEndStr) <= 0) {
+        currentMonthContribSum += (c['amount'] as num?)?.toDouble() ?? 0.0;
+      }
+    }
+
     final effectiveIncome = FinancialCalculator.resolveEffectiveIncome(
       recordedMonthlyIncome: totalIncome,
       profileMonthlyIncome: verifiedMonthlyIncome,
     );
-    final netCashFlow = totalIncome - totalExpense;
+    final netCashFlow = FinancialCalculator.calculateNetCashFlow(
+      totalIncome: totalIncome,
+      totalExpense: totalExpense,
+      savingsTransfer: currentMonthContribSum,
+    );
 
     // Total balances across accounts + net transactions (avoids double counting opening balance seeded with monthly income)
     double totalAccountBalance = 0.0;
@@ -973,6 +992,7 @@ class CoachRepositoryImpl implements CoachRepository {
       recordedMonthlyIncome: totalIncome,
       recordedMonthlyExpense: totalExpense,
       totalOpeningBalance: totalAccountBalance,
+      netSavingsTransfer: currentMonthContribSum,
     );
 
     // Total accumulated in goals
@@ -1021,23 +1041,8 @@ class CoachRepositoryImpl implements CoachRepository {
         ? activeNeedsBudgetTotal
         : essentialExpenses;
 
-    final monthStartStr =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
-    final lastDay = DateTime(now.year, now.month + 1, 0).day;
-    final monthEndStr =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
-    double currentMonthContribSum = 0.0;
-    for (final c in contributions) {
-      final dateStr = c['contribution_date']?.toString().split('T').first ?? '';
-      if (dateStr.compareTo(monthStartStr) >= 0 &&
-          dateStr.compareTo(monthEndStr) <= 0) {
-        currentMonthContribSum += (c['amount'] as num?)?.toDouble() ?? 0.0;
-      }
-    }
-    final monthlySavingsContributions = math.max(0.0, currentMonthContribSum);
-
     // Golden Financial Rule:
-    // Uang Dingin Siap Pakai = Pemasukan Efektif - Komitmen Kebutuhan Pokok & Konsumsi - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Tabungan/Dana Darurat Bulan Ini
+    // Uang Dingin Siap Pakai = Pemasukan Efektif - Komitmen Kebutuhan Pokok & Konsumsi - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Neto Tabungan/Dana Darurat Bulan Ini
     final effectiveConsumptionExpense =
         FinancialCalculator.resolveEffectiveConsumptionExpense(
       monthlyEssentialCommitment: monthlyEssentialCommitment,
@@ -1051,7 +1056,7 @@ class CoachRepositoryImpl implements CoachRepository {
       totalIncome: effectiveIncome,
       totalConsumptionExpense: effectiveConsumptionExpense,
       unpaidMonthlyDebt: unpaidMonthlyDebt,
-      monthlySavingsContribution: monthlySavingsContributions,
+      monthlySavingsContribution: currentMonthContribSum,
       maxCashCap: hasRealCashTracking ? actualLiquidCash : null,
     );
 

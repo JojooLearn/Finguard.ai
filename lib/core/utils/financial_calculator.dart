@@ -3,18 +3,19 @@ import 'dart:math' as math;
 class FinancialCalculator {
   FinancialCalculator._();
 
-  /// 10.1 Net Cash Flow
-  /// net_cash_flow = total_confirmed_income - total_confirmed_expense
+  /// 10.1 Net Cash Flow (Sisa Uang Bersih di Dompet Utama)
+  /// net_cash_flow = total_confirmed_income - total_confirmed_expense - net_savings_transfer
   static double calculateNetCashFlow({
     required double totalIncome,
     required double totalExpense,
+    double savingsTransfer = 0.0,
   }) {
-    return totalIncome - totalExpense;
+    return totalIncome - totalExpense - savingsTransfer;
   }
 
   /// 10.1b Available Free Cash (Uang Dingin Siap Pakai - Golden Financial Rule)
   /// Uang Dingin Siap Pakai = Pemasukan Efektif - Komitmen Kebutuhan Pokok & Konsumsi
-  ///   - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Tabungan/Dana Darurat Bulan Ini
+  ///   - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Neto Tabungan/Dana Darurat Bulan Ini
   /// Jika [maxCashCap] diberikan (saat kas cair riil tercatat), hasil dibatasi <= maxCashCap.
   static double calculateAvailableFreeCash({
     required double totalIncome,
@@ -28,7 +29,7 @@ class FinancialCalculator {
     final effectiveDebt = unpaidMonthlyDebt > 0
         ? unpaidMonthlyDebt
         : unpaidMonthlyDebtObligation;
-    final effectiveSavings = monthlySavingsContribution > 0
+    final effectiveSavings = monthlySavingsContribution != 0
         ? monthlySavingsContribution
         : monthlySavingsContributions;
     final raw = totalIncome -
@@ -40,6 +41,13 @@ class FinancialCalculator {
       return math.min(freeCash, math.max(0.0, maxCashCap));
     }
     return freeCash;
+  }
+
+  /// Catatan kontribusi saldo awal historis dari onboarding/migrasi agar tidak memotong arus kas bulan ini.
+  static bool isInitialSeedContributionNote(String? note) {
+    final normalized = (note ?? '').trim().toLowerCase();
+    return normalized == 'saldo awal dana darurat' ||
+        normalized == 'saldo awal tercatat';
   }
 
   /// Klasifikasi pos kebutuhan pokok ('needs') dari allocationType atau nama kategori.
@@ -84,13 +92,16 @@ class FinancialCalculator {
         nonDebtOtherExpense;
   }
 
-  /// Saldo kas cair riil saat ini, menghindari hitung ganda opening balance yg diisi gaji awal.
+  /// Saldo kas cair riil di dompet utama saat ini (setelah belanja & transfer ke tabungan/dana darurat),
+  /// menghindari hitung ganda opening balance yg diisi gaji awal.
   static double calculateLiquidCash({
     required double recordedMonthlyIncome,
     required double recordedMonthlyExpense,
     required double totalOpeningBalance,
+    double netSavingsTransfer = 0.0,
   }) {
-    var liquidCash = recordedMonthlyIncome - recordedMonthlyExpense;
+    var liquidCash =
+        recordedMonthlyIncome - recordedMonthlyExpense - netSavingsTransfer;
     if (totalOpeningBalance > recordedMonthlyIncome) {
       liquidCash += (totalOpeningBalance - recordedMonthlyIncome);
     }

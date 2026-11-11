@@ -154,5 +154,58 @@ void main() {
       expect(midFreeCash, 1000000);
       expect(midFreeCash <= midLiquidCash, isTrue);
     });
+
+    test('Option B savings transfer keeps Home net cash, liquid cash, and Uang Dingin consistent without double deduction', () {
+      // Skenario user: Gaji 1jt, Needs 500rb, transfer 100rb ke Dana Darurat
+      final netWalletCash = FinancialCalculator.calculateNetCashFlow(
+        totalIncome: 1000000,
+        totalExpense: 0,
+        savingsTransfer: 100000,
+      );
+      expect(netWalletCash, 900000);
+
+      final liquidCash = FinancialCalculator.calculateLiquidCash(
+        recordedMonthlyIncome: 1000000,
+        recordedMonthlyExpense: 0,
+        totalOpeningBalance: 0,
+        netSavingsTransfer: 100000,
+      );
+      expect(liquidCash, 900000);
+
+      final freeCash = FinancialCalculator.calculateAvailableFreeCash(
+        totalIncome: 1000000,
+        totalConsumptionExpense: 500000,
+        unpaidMonthlyDebt: 0,
+        monthlySavingsContribution: 100000,
+        maxCashCap: liquidCash,
+      );
+      expect(freeCash, 400000);
+
+      // Bulan berikutnya: pengeluaran darurat 50rb dibayar DARI Dana Darurat (goal_contribution -50rb)
+      final month2NetCash = FinancialCalculator.calculateNetCashFlow(
+        totalIncome: 1000000,
+        totalExpense: 50000,
+        savingsTransfer: -50000,
+      );
+      expect(month2NetCash, 1000000);
+
+      final month2FreeCash = FinancialCalculator.calculateAvailableFreeCash(
+        totalIncome: 1000000,
+        totalConsumptionExpense: 550000, // needs 500k + emergency expense 50k
+        unpaidMonthlyDebt: 0,
+        monthlySavingsContribution: -50000,
+        maxCashCap: month2NetCash,
+      );
+      expect(month2FreeCash, 500000);
+
+      expect(
+        FinancialCalculator.isInitialSeedContributionNote('Saldo Awal Dana Darurat'),
+        isTrue,
+      );
+      expect(
+        FinancialCalculator.isInitialSeedContributionNote('Setoran Dana Darurat'),
+        isFalse,
+      );
+    });
   });
 }

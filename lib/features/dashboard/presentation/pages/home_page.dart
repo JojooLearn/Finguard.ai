@@ -7,6 +7,7 @@ import '../../../../app/theme/app_spacing.dart';
 import '../../../../app/theme/app_typography.dart';
 import '../../../../core/formatters/currency_formatter.dart';
 import '../../../../core/formatters/date_formatter.dart';
+import '../../../../core/utils/financial_calculator.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../../../auth/presentation/cubit/auth_state.dart';
 import '../../../budgets/domain/entities/budget_entity.dart';
@@ -459,9 +460,16 @@ class _HomePageState extends State<HomePage> {
                 GestureDetector(
                   onTap: () {
                     final txState = context.read<TransactionCubit>().state;
+                    final goalState = context.read<GoalCubit>().state;
                     double cashFlowValNum = 0.0;
                     double mIncVal = 0.0;
                     double mExpVal = 0.0;
+                    final double mSavingsTransfer = goalState is GoalLoaded
+                        ? goalState.netSavingsForMonth(
+                            _selectedMonth.year,
+                            _selectedMonth.month,
+                          )
+                        : 0.0;
                     int incCount = 0;
                     int expCount = 0;
                     if (txState is TransactionLoaded) {
@@ -480,25 +488,45 @@ class _HomePageState extends State<HomePage> {
                       mExpVal = expList.fold(0.0, (s, t) => s + t.amount);
                       incCount = incList.length;
                       expCount = expList.length;
-                      cashFlowValNum = mIncVal - mExpVal;
+                      cashFlowValNum = FinancialCalculator.calculateNetCashFlow(
+                        totalIncome: mIncVal,
+                        totalExpense: mExpVal,
+                        savingsTransfer: mSavingsTransfer,
+                      );
                     }
                     final isSurplus = cashFlowValNum >= 0;
                     final cashFlowVal = CurrencyFormatter.formatSigned(
                       cashFlowValNum,
                       isIncome: isSurplus,
                     );
+                    final String formulaText;
+                    final String transferExplanation;
+                    if (mSavingsTransfer > 0) {
+                      formulaText =
+                          '${CurrencyFormatter.format(mIncVal)} (Masuk) - ${CurrencyFormatter.format(mExpVal)} (Belanja) - ${CurrencyFormatter.format(mSavingsTransfer)} (Tabungan/Darurat) = $cashFlowVal';
+                      transferExplanation =
+                          ' serta dikurangi dana yang sudah dipindahkan ke pos Tabungan / Dana Darurat sebesar ${CurrencyFormatter.format(mSavingsTransfer)}';
+                    } else if (mSavingsTransfer < 0) {
+                      formulaText =
+                          '${CurrencyFormatter.format(mIncVal)} (Masuk) - ${CurrencyFormatter.format(mExpVal)} (Belanja) + ${CurrencyFormatter.format(mSavingsTransfer.abs())} (Pakai Dana Darurat) = $cashFlowVal';
+                      transferExplanation =
+                          ' serta disesuaikan penarikan Dana Darurat sebesar ${CurrencyFormatter.format(mSavingsTransfer.abs())}';
+                    } else {
+                      formulaText =
+                          '${CurrencyFormatter.format(mIncVal)} (Pemasukan) - ${CurrencyFormatter.format(mExpVal)} (Belanja) = $cashFlowVal';
+                      transferExplanation = '';
+                    }
                     ExplanationSheet.show(
                       context,
                       title: isCurrentMonth
                           ? 'Sisa Uang Bersih Bulan Ini'
                           : 'Sisa Uang Bersih ($currentPeriodLabel)',
                       metricValue: cashFlowVal,
-                      formula:
-                          '${CurrencyFormatter.format(mIncVal)} (Pemasukan) - ${CurrencyFormatter.format(mExpVal)} (Belanja) = $cashFlowVal',
+                      formula: formulaText,
                       explanation:
-                          'Sisa Uang Bersih dihitung dari total pemasukan tercatat (${CurrencyFormatter.format(mIncVal)} dari $incCount transaksi) dikurangi seluruh belanja (${CurrencyFormatter.format(mExpVal)} dari $expCount transaksi) pada $currentPeriodLabel.\n\n${isSurplus ? 'Dompetmu saat ini masih surplus ${CurrencyFormatter.format(cashFlowValNum)}. Sisa uang dingin ini aman dialokasikan ke pos tabungan atau investasi.' : 'Pengeluaranmu melebihi pemasukan (defisit ${CurrencyFormatter.format(cashFlowValNum.abs())}). Tahan belanja non-esensial agar dompet lekas pulih.'}',
+                          'Sisa Uang Bersih dompet utama dihitung dari total pemasukan tercatat (${CurrencyFormatter.format(mIncVal)} dari $incCount transaksi) dikurangi seluruh belanja (${CurrencyFormatter.format(mExpVal)} dari $expCount transaksi)$transferExplanation pada $currentPeriodLabel.\n\n${isSurplus ? 'Kas dompet utamamu saat ini masih surplus ${CurrencyFormatter.format(cashFlowValNum)} (terpisah dari celengan Tabungan & Dana Darurat).' : 'Pengeluaran dan alokasi tabunganmu melebihi pemasukan (defisit ${CurrencyFormatter.format(cashFlowValNum.abs())}). Tahan belanja non-esensial agar dompet lekas pulih.'}',
                       tip:
-                          'Amankan minimal 20% dari pemasukan setiap bulan ke pos tabungan atau dana darurat!',
+                          'Setiap dana yang kamu pindahkan ke Tabungan atau Dana Darurat otomatis mengurangi angka ini agar terpisah dari uang belanja harian.',
                       icon: PhosphorIcons.coins(PhosphorIconsStyle.fill),
                     );
                   },
@@ -523,45 +551,58 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                BlocBuilder<TransactionCubit, TransactionState>(
-                  builder: (context, txState) {
-                    String cashFlowText = 'Rp0';
-                    String incomeText = 'Rp0';
-                    String expenseText = 'Rp0';
-                    List<TransactionEntity> incTxs = [];
-                    List<TransactionEntity> expTxs = [];
-                    double mInc = 0.0;
-                    double mExp = 0.0;
-                    bool hasMonthCashflow = false;
-                    if (txState is TransactionLoaded) {
-                      final monthTxs = txState.transactions.where((t) {
-                        return t.transactionDate.year == _selectedMonth.year &&
-                            t.transactionDate.month == _selectedMonth.month &&
-                            t.status == TransactionStatus.confirmed;
-                      }).toList();
-
-                      incTxs = monthTxs
-                          .where(
-                            (t) => t.transactionType == TransactionType.income,
+                BlocBuilder<GoalCubit, GoalState>(
+                  builder: (context, goalState) {
+                    final double mSavingsTransfer = goalState is GoalLoaded
+                        ? goalState.netSavingsForMonth(
+                            _selectedMonth.year,
+                            _selectedMonth.month,
                           )
-                          .toList();
-                      expTxs = monthTxs
-                          .where(
-                            (t) => t.transactionType == TransactionType.expense,
-                          )
-                          .toList();
-                      mInc = incTxs.fold(0.0, (s, t) => s + t.amount);
-                      mExp = expTxs.fold(0.0, (s, t) => s + t.amount);
-                      final mNet = mInc - mExp;
-                      hasMonthCashflow = mInc > 0 || mExp > 0;
+                        : 0.0;
+                    return BlocBuilder<TransactionCubit, TransactionState>(
+                      builder: (context, txState) {
+                        String cashFlowText = 'Rp0';
+                        String incomeText = 'Rp0';
+                        String expenseText = 'Rp0';
+                        List<TransactionEntity> incTxs = [];
+                        List<TransactionEntity> expTxs = [];
+                        double mInc = 0.0;
+                        double mExp = 0.0;
+                        bool hasMonthCashflow = false;
+                        if (txState is TransactionLoaded) {
+                          final monthTxs = txState.transactions.where((t) {
+                            return t.transactionDate.year == _selectedMonth.year &&
+                                t.transactionDate.month == _selectedMonth.month &&
+                                t.status == TransactionStatus.confirmed;
+                          }).toList();
 
-                      cashFlowText = CurrencyFormatter.formatSigned(
-                        mNet,
-                        isIncome: mNet >= 0,
-                      );
-                      incomeText = CurrencyFormatter.format(mInc);
-                      expenseText = CurrencyFormatter.format(mExp);
-                    }
+                          incTxs = monthTxs
+                              .where(
+                                (t) => t.transactionType == TransactionType.income,
+                              )
+                              .toList();
+                          expTxs = monthTxs
+                              .where(
+                                (t) => t.transactionType == TransactionType.expense,
+                              )
+                              .toList();
+                          mInc = incTxs.fold(0.0, (s, t) => s + t.amount);
+                          mExp = expTxs.fold(0.0, (s, t) => s + t.amount);
+                          final mNet = FinancialCalculator.calculateNetCashFlow(
+                            totalIncome: mInc,
+                            totalExpense: mExp,
+                            savingsTransfer: mSavingsTransfer,
+                          );
+                          hasMonthCashflow =
+                              mInc > 0 || mExp > 0 || mSavingsTransfer != 0;
+
+                          cashFlowText = CurrencyFormatter.formatSigned(
+                            mNet,
+                            isIncome: mNet >= 0,
+                          );
+                          incomeText = CurrencyFormatter.format(mInc);
+                          expenseText = CurrencyFormatter.format(mExp);
+                        }
 
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -676,10 +717,8 @@ class _HomePageState extends State<HomePage> {
                               );
                             }
 
-                            return BlocBuilder<GoalCubit, GoalState>(
-                              builder: (context, goalState) {
-                                String goalLabel = 'Dana Darurat';
-                                String goalVal = 'Mulai Nabung';
+                            String goalLabel = 'Dana Darurat';
+                            String goalVal = 'Mulai Nabung';
                                 String goalCap = 'Buat celenganmu di profil';
                                 double? goalProgress;
                                 GoalEntity? topGoal;
@@ -956,10 +995,10 @@ class _HomePageState extends State<HomePage> {
                                   ],
                                 );
                               },
-                            );
-                          },
-                        ),
-                      ],
+                            ),
+                          ],
+                        );
+                      },
                     );
                   },
                 ),

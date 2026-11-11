@@ -93,7 +93,7 @@ Future<GoldenRuleMetrics> fetchGoldenRuleMetrics(
         _safeQuery(
           client
               .from('goal_contributions')
-              .select('amount, contribution_date')
+              .select('amount, contribution_date, note')
               .eq('user_id', user.id)
               .gte('contribution_date', monthStart)
               .lte('contribution_date', monthEnd),
@@ -239,9 +239,11 @@ Future<GoldenRuleMetrics> fetchGoldenRuleMetrics(
 
       double contribSum = 0.0;
       for (final c in (results[3] as List?) ?? const []) {
+        final note = c['note']?.toString();
+        if (FinancialCalculator.isInitialSeedContributionNote(note)) continue;
         contribSum += (c['amount'] as num?)?.toDouble() ?? 0.0;
       }
-      monthlySavings = math.max(0.0, contribSum);
+      monthlySavings = contribSum;
 
       hasData = profileIncome > 0 || txIncome > 0;
     } catch (_) {}
@@ -270,6 +272,7 @@ Future<GoldenRuleMetrics> fetchGoldenRuleMetrics(
     recordedMonthlyIncome: txIncome,
     recordedMonthlyExpense: txExpense,
     totalOpeningBalance: totalOpeningBalance,
+    netSavingsTransfer: monthlySavings,
   );
 
   final hasRealCashTracking =
@@ -288,11 +291,11 @@ Future<GoldenRuleMetrics> fetchGoldenRuleMetrics(
     income: effectiveIncome,
     consumptionExpense: effectiveExpense,
     unpaidDebt: unpaidActiveDebt,
-    savingsContribution: monthlySavings,
+    savingsContribution: math.max(0.0, monthlySavings),
     freeCash: freeCash,
     availableCash: hasRealCashTracking
         ? liquidCash
-        : math.max(0.0, effectiveIncome - effectiveExpense),
+        : math.max(0.0, effectiveIncome - effectiveExpense - monthlySavings),
   );
 }
 

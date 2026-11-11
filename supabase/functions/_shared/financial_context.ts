@@ -160,6 +160,14 @@ function isNeedsCategory(allocationType: string, categoryName: string): boolean 
   );
 }
 
+function isInitialSeedContributionNote(note: string): boolean {
+  const normalized = note.trim().toLowerCase();
+  return (
+    normalized === "saldo awal dana darurat" ||
+    normalized === "saldo awal tercatat"
+  );
+}
+
 export async function getUserFinancialContext(supabaseClient: any, userId: string, clientDate?: string): Promise<UserFinancialContext> {
   let todayStr: string;
   let yesterdayStr: string;
@@ -406,11 +414,8 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
   const totalOpeningBalance = accounts.reduce((acc: number, item: any) => acc + item.openingBalance, 0);
 
   // Avoid double-counting opening balance if it was seeded with the same monthly income transaction
-  let actualLiquidCash = monthlyTotalIncome - monthlyTotalExpense;
-  if (totalOpeningBalance > monthlyTotalIncome) {
-    actualLiquidCash += (totalOpeningBalance - monthlyTotalIncome);
-  }
-  if (actualLiquidCash < 0) actualLiquidCash = 0;
+  // (dihitung bersama transfer tabungan/dana darurat setelah data goal_contributions diproses)
+  let actualLiquidCash = 0;
 
   const budgets = (budgetsRes.data || [])
     .filter((b: any) => {
@@ -572,7 +577,40 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
 
   const elapsedDays = Math.max(1, currentDayOfMonth);
   const dailyAverageExpense = monthlyTotalExpense / elapsedDays;
-  const monthlyNetCashFlow = monthlyTotalIncome - monthlyTotalExpense;
+
+  // Setoran/transfer neto ke pos Tabungan & Dana Darurat bulan berjalan (kecuali saldo awal historis)
+  const monthlySavingsTransfer = goalContributions
+    .filter(
+      (gc) =>
+        gc.date >= currentMonthStart &&
+        gc.date <= currentMonthEnd &&
+        !isInitialSeedContributionNote(gc.note),
+    )
+    .reduce((acc, gc) => acc + gc.amount, 0);
+  const monthlySavingsContributions = Math.max(0, monthlySavingsTransfer);
+
+  // Sinkronkan saldo Dompet Utama agar uang yang dipindah ke celengan tabungan/darurat tidak tetap dihitung di dompet harian
+  const totalNonSeedGoalTransfer = goalContributions
+    .filter((gc) => !isInitialSeedContributionNote(gc.note))
+    .reduce((acc, gc) => acc + gc.amount, 0);
+  if (defaultAccount && totalNonSeedGoalTransfer !== 0) {
+    defaultAccount.currentBalance = Math.max(
+      0,
+      defaultAccount.currentBalance - totalNonSeedGoalTransfer,
+    );
+  }
+
+  // Sisa Uang Bersih Bulan Ini (Opsi B: kas dompet utama setelah belanja & dipindahkan ke tabungan/dana darurat)
+  const monthlyNetCashFlow =
+    monthlyTotalIncome - monthlyTotalExpense - monthlySavingsTransfer;
+
+  // Hitung ulang kas cair aktual dompet utama dengan memperhitungkan transfer tabungan/darurat
+  actualLiquidCash =
+    monthlyTotalIncome - monthlyTotalExpense - monthlySavingsTransfer;
+  if (totalOpeningBalance > monthlyTotalIncome) {
+    actualLiquidCash += (totalOpeningBalance - monthlyTotalIncome);
+  }
+  if (actualLiquidCash < 0) actualLiquidCash = 0;
 
   // Prioritaskan pemasukan transaksi aktual bulan ini; fallback ke profil jika belum ada transaksi masuk.
   const effectiveIncome = monthlyTotalIncome > 0 ? monthlyTotalIncome : monthlyIncome;
@@ -633,17 +671,11 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
     unpaidMonthlyDebt = debts.length > 0 ? 0 : Number(fp.monthly_debt_payments || 0);
   }
 
-  // Hitung setoran neto tabungan & dana darurat KHUSUS bulan berjalan (tidak memakai total saldo historis bulan lalu).
-  const currentMonthContribTotal = goalContributions
-    .filter((gc) => gc.date >= currentMonthStart && gc.date <= currentMonthEnd)
-    .reduce((acc, gc) => acc + gc.amount, 0);
-  const monthlySavingsContributions = Math.max(0, currentMonthContribTotal);
-
   // Golden Financial Rule:
-  // Uang Dingin Siap Pakai = Pemasukan Aktual - Komitmen Kebutuhan Pokok & Konsumsi - Cicilan Belum Dibayar - Setoran Tabungan/Dana Darurat Bulan Ini
+  // Uang Dingin Siap Pakai = Pemasukan Aktual - Komitmen Kebutuhan Pokok & Konsumsi - Cicilan Belum Dibayar - Setoran Neto Tabungan/Dana Darurat Bulan Ini
   const rawFreeCash = Math.max(
     0,
-    effectiveIncome - effectiveConsumptionExpense - unpaidMonthlyDebt - monthlySavingsContributions,
+    effectiveIncome - effectiveConsumptionExpense - unpaidMonthlyDebt - monthlySavingsTransfer,
   );
   const hasRealCashTracking =
     monthlyTotalIncome > 0 || monthlyTotalExpense > 0 || totalOpeningBalance > 0;

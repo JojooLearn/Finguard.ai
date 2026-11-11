@@ -913,7 +913,7 @@ ATURAN UX WRITING & FORMAT (ZERO-SLOP):
 DATABASE KEUANGAN LENGKAP PENGGUNA (TERHUBUNG KE SEMUA TABEL):
 
 0. RINGKASAN UTAMA BULAN INI (SINKRON 100% DENGAN DASHBOARD HOME & TRANSAKSI):
-- Sisa Uang Bersih Bulan Ini: ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")}
+- Sisa Uang Bersih Bulan Ini (Pemasukan - Pengeluaran - Disisihkan ke Tabungan/Darurat): ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")}
 - Total Pemasukan Bulan Ini: Rp${finContext.monthlyTotalIncome.toLocaleString("id-ID")}
 - Total Pengeluaran Bulan Ini: Rp${finContext.monthlyTotalExpense.toLocaleString("id-ID")}
 - Total Pengeluaran Kemarin (${finContext.yesterdayStr}): Rp${finContext.yesterdayExpenses.toLocaleString("id-ID")} (Khusus Makan: Rp${finContext.yesterdayFoodExpense.toLocaleString("id-ID")})
@@ -1006,7 +1006,7 @@ ATURAN WAJIB KLASIFIKASI INTENT:
      * Jika pengguna menanyakan HARI INI SAJA:
        Sebutkan Hari Ini (${finContext.todayStr}) keluar Rp${finContext.todayExpenses.toLocaleString("id-ID")} (makan: Rp${finContext.todayFoodExpense.toLocaleString("id-ID")}).
      * Jika pengguna menanyakan TOTAL PENGELUARAN BULAN INI:
-       Sebutkan Rp${finContext.monthlyTotalExpense.toLocaleString("id-ID")}, Sisa Uang Bersih: ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")}. Ini SINKRON 100% dengan tampilan Home.
+       Sebutkan Rp${finContext.monthlyTotalExpense.toLocaleString("id-ID")}, Disisihkan ke Tabungan/Dana Darurat: Rp${finContext.monthlySavingsContributions.toLocaleString("id-ID")}, dan Sisa Uang Bersih: ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")}. Ini SINKRON 100% dengan tampilan Home.
    - PERINGATAN WAJIB ANTI-HALUSINASI CHAT HISTORY:
      DILARANG KERAS mengambil angka dari teks percakapan chat sebelumnya atau menjumlahkannya dengan data baru! Angka yang benar dan sah HANYA berasal dari data database di prompt ini!
    - needs_clarification = false, structured_transaction = null, intent = "query_financial_status".
@@ -1154,7 +1154,7 @@ ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JE
 ${groqPersonaRule}
 
 DATA KEUANGAN REAL-TIME (${finContext.todayStr}, WIB UTC+7):
-- Sisa Bersih Bulan Ini: ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")} | Pemasukan: Rp${finContext.monthlyTotalIncome.toLocaleString("id-ID")} | Pengeluaran: Rp${finContext.monthlyTotalExpense.toLocaleString("id-ID")}
+- Sisa Bersih Bulan Ini (Pemasukan - Belanja - Disisihkan Tabungan/Darurat): ${finContext.monthlyNetCashFlow >= 0 ? "+" : "-"}Rp${Math.abs(finContext.monthlyNetCashFlow).toLocaleString("id-ID")} | Pemasukan: Rp${finContext.monthlyTotalIncome.toLocaleString("id-ID")} | Pengeluaran: Rp${finContext.monthlyTotalExpense.toLocaleString("id-ID")} | Disisihkan Tabungan/Darurat: Rp${finContext.monthlySavingsContributions.toLocaleString("id-ID")}
 - Hari Ini (${finContext.todayStr}): Rp${finContext.todayExpenses.toLocaleString("id-ID")} (Makan: Rp${finContext.todayFoodExpense.toLocaleString("id-ID")}) | Kemarin (${finContext.yesterdayStr}): Rp${finContext.yesterdayExpenses.toLocaleString("id-ID")} (Makan: Rp${finContext.yesterdayFoodExpense.toLocaleString("id-ID")})
 - Profil: Income Rp${finContext.monthlyIncome.toLocaleString("id-ID")}/${finContext.incomeFrequency}, Kebutuhan Rp${finContext.essentialExpenses.toLocaleString("id-ID")}, Cicilan Rp${finContext.monthlyDebt.toLocaleString("id-ID")}, Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas Cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Risiko ${finContext.riskProfile}
 - Rekening/Dompet:\n${accountsSummary}
