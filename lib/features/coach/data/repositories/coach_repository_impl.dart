@@ -211,18 +211,31 @@ class CoachRepositoryImpl implements CoachRepository {
             .order('updated_at', ascending: false);
 
         final convList = <ChatConversationEntity>[];
+        const placeholderTitles = {
+          '',
+          'percakapan baru',
+          'chat coach finguard',
+          'konsultasi finguard',
+          'percakapan finguard',
+        };
         for (final item in (res as List)) {
           final convId = item['id'] as String;
           bool hasUserMessage = false;
+          String? firstUserMsg;
           String? lastMsg;
           try {
-            final userMsgRes = await client
+            final firstUserRes = await client
                 .from('chat_messages')
-                .select('id')
+                .select('id, content')
                 .eq('conversation_id', convId)
                 .eq('role', 'user')
-                .limit(1);
-            hasUserMessage = (userMsgRes as List).isNotEmpty;
+                .order('created_at', ascending: true)
+                .limit(1)
+                .maybeSingle();
+            if (firstUserRes != null) {
+              hasUserMessage = true;
+              firstUserMsg = firstUserRes['content'] as String?;
+            }
 
             final lastMsgRes = await client
                 .from('chat_messages')
@@ -241,10 +254,30 @@ class CoachRepositoryImpl implements CoachRepository {
             continue;
           }
 
+          String resolvedTitle = (item['title'] as String? ?? '').trim();
+          if (placeholderTitles.contains(resolvedTitle.toLowerCase()) &&
+              firstUserMsg != null &&
+              firstUserMsg.trim().isNotEmpty) {
+            final normalizedFirst =
+                firstUserMsg.replaceAll(RegExp(r'\s+'), ' ').trim();
+            resolvedTitle = normalizedFirst.length > 42
+                ? '${normalizedFirst.substring(0, 39).trim()}...'
+                : normalizedFirst;
+            try {
+              await client
+                  .from('chat_conversations')
+                  .update({'title': resolvedTitle})
+                  .eq('id', convId);
+            } catch (_) {}
+          }
+          if (resolvedTitle.isEmpty) {
+            resolvedTitle = 'Percakapan FinGuard';
+          }
+
           convList.add(
             ChatConversationEntity(
               id: convId,
-              title: item['title'] as String? ?? 'Percakapan FinGuard',
+              title: resolvedTitle,
               conversationType: item['conversation_type'] as String? ?? 'coach',
               createdAt: DateTime.parse(item['created_at']).toLocal(),
               updatedAt: DateTime.parse(item['updated_at']).toLocal(),
@@ -1513,33 +1546,33 @@ class CoachRepositoryImpl implements CoachRepository {
         extractedAmount > 0 &&
         !isQuestion &&
         !isPurchaseConsultation) {
+      final wantsEmergencyDeposit = RegExp(
+        r'(?:tambah|tambahin|tambahkan|isi|masukin|masukkan|setor|setorin|nabung|tabung|top\s*up|alokasi(?:kan)?)\s+(?:saldo\s+)?(?:ke\s+|untuk\s+|di\s+)?(?:uang|dana)\s+darurat|(?:uang|dana)\s+darurat(?:\s+\w+){0,3}\s+(?:tambah|tambahin|tambahkan|isi|setor|nabung)',
+      ).hasMatch(lower);
+
       final isIncome =
-          lower.contains('gaji') ||
-          lower.contains('terima') ||
-          lower.contains('masuk') ||
-          lower.contains('bonus') ||
-          lower.contains('upah') ||
-          lower.contains('profit') ||
-          lower.contains('cuan') ||
-          lower.contains('untung') ||
-          lower.contains('dividen') ||
-          lower.contains('imbal hasil') ||
-          lower.contains('pemasukan') ||
-          lower.contains('penjualan') ||
-          lower.contains('honor') ||
-          lower.contains('royalti') ||
-          lower.contains('dapat') ||
-          lower.contains('dapet') ||
-          lower.contains('cair') ||
-          lower.contains('saham') ||
-          lower.contains('crypto') ||
-          lower.contains('kripto') ||
-          lower.contains('reksadana') ||
-          lower.contains('tambal') ||
-          lower.contains('ban') ||
-          lower.contains('servis') ||
-          lower.contains('bengkel') ||
-          lower.contains('darurat');
+          !wantsEmergencyDeposit &&
+          (lower.contains('gaji') ||
+              lower.contains('terima') ||
+              lower.contains('masuk') ||
+              lower.contains('bonus') ||
+              lower.contains('upah') ||
+              lower.contains('profit') ||
+              lower.contains('cuan') ||
+              lower.contains('untung') ||
+              lower.contains('dividen') ||
+              lower.contains('imbal hasil') ||
+              lower.contains('pemasukan') ||
+              lower.contains('penjualan') ||
+              lower.contains('honor') ||
+              lower.contains('royalti') ||
+              lower.contains('dapat') ||
+              lower.contains('dapet') ||
+              lower.contains('cair') ||
+              lower.contains('saham') ||
+              lower.contains('crypto') ||
+              lower.contains('kripto') ||
+              lower.contains('reksadana'));
 
       final itemLabel = text
           .replaceAll(
@@ -1681,6 +1714,7 @@ class CoachRepositoryImpl implements CoachRepository {
       }
 
       final wantsEmergencyFund = !isIncome &&
+          !wantsEmergencyDeposit &&
           RegExp(
             r'(?:pakai|pake|ambil|gunakan|gunain|menggunakan|potong|tarik|dari)\s+(?:uang|dana)\s+darurat',
           ).hasMatch(lower);
@@ -1700,9 +1734,20 @@ class CoachRepositoryImpl implements CoachRepository {
       final formattedAmt = _formatRp(extractedAmount);
       final isEmergencyUsable =
           wantsEmergencyFund && effectiveEmergencyBalance >= extractedAmount;
-      final effectiveCategory =
-          isEmergencyUsable ? 'Dana Darurat' : categorySuggestion;
-      final replyText = isEmergencyUsable
+      final effectiveCategory = (wantsEmergencyDeposit || isEmergencyUsable)
+          ? 'Dana Darurat'
+          : categorySuggestion;
+      final effectiveType = wantsEmergencyDeposit
+          ? 'goal_deposit'
+          : (isIncome ? 'income' : 'expense');
+      final effectiveFundingSource = wantsEmergencyDeposit
+          ? 'emergency_fund_deposit'
+          : (isEmergencyUsable ? 'emergency_fund' : 'regular');
+      final replyText = wantsEmergencyDeposit
+          ? (strictnessLevel >= 4
+              ? 'Oke, gua siapin draf setoran $formattedAmt ke Dana Darurat lu (saldo sekarang di database: ${_formatRp(effectiveEmergencyBalance)}). Klik "Simpan" di kartu bawah biar beneran masuk ke celengan Dana Darurat, bukan cuma omong kosong!'
+              : 'Draf setoran $formattedAmt ke celengan Dana Darurat sudah disiapkan (saldo saat ini: ${_formatRp(effectiveEmergencyBalance)}). Klik "Simpan" di bawah untuk menambahkan ke Dana Darurat.')
+          : isEmergencyUsable
           ? (strictnessLevel >= 4
               ? 'Duh, $formattedAmt buat "$cleanNote" aja udah nyentuh Dana Darurat (${_formatRp(effectiveEmergencyBalance)})? Padahal pos $categorySuggestion lu masih bisa diandelin biar Dana Darurat utuh! Tapi karena lu minta, draf penarikan Dana Darurat udah gua siapin — cek sumber dananya di kartu bawah sebelum klik Simpan!'
               : 'Catatan: Pengeluaran $formattedAmt untuk "$cleanNote" sebenarnya lebih disarankan memakai pos $categorySuggestion agar Dana Daruratmu (${_formatRp(effectiveEmergencyBalance)}) tetap terjaga. Namun draf penarikan Dana Darurat sudah disiapkan—kamu dapat memilih sumber dananya di kartu bawah lalu klik Simpan.')
@@ -1714,10 +1759,10 @@ class CoachRepositoryImpl implements CoachRepository {
         reply: replyText,
         extractedTx: {
           'amount': extractedAmount,
-          'type': isIncome ? 'income' : 'expense',
-          'note': cleanNote,
+          'type': effectiveType,
+          'note': wantsEmergencyDeposit ? 'Setoran Dana Darurat' : cleanNote,
           'category_suggestion': effectiveCategory,
-          'funding_source': isEmergencyUsable ? 'emergency_fund' : 'regular',
+          'funding_source': effectiveFundingSource,
           if (isEmergencyUsable) 'fallback_category_suggestion': categorySuggestion,
           'confidence': 0.95,
         },

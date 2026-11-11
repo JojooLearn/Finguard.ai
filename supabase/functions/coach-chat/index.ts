@@ -35,13 +35,13 @@ const STRUCTURED_EXTRACTION_SCHEMA = {
       description:
         "Extracted transaction ONLY when user explicitly commands to record income or expense (e.g. 'Makan siang 35.000', 'Beli bensin 50rb'). Must be null for questions, status inquiries, or purchase consultations.",
       properties: {
-        type: { type: "STRING", description: "expense or income" },
+        type: { type: "STRING", description: "expense, income, or goal_deposit (use goal_deposit when user adds/deposits money into Dana Darurat / savings goal)" },
         amount: { type: "NUMBER", description: "Nominal in IDR" },
         currency: { type: "STRING", description: "ISO currency code, always IDR" },
         transaction_date: { type: "STRING", description: "ISO date string (YYYY-MM-DD)" },
-        category_suggestion: { type: "STRING", description: "Suggested category name (use 'Dana Darurat' when funding_source is 'emergency_fund')" },
+        category_suggestion: { type: "STRING", description: "Suggested category name (use 'Dana Darurat' when funding_source is 'emergency_fund' or 'emergency_fund_deposit')" },
         note: { type: "STRING", description: "Transaction note/description" },
-        funding_source: { type: "STRING", description: "'emergency_fund' ONLY when user explicitly asks to use/withdraw Dana Darurat / Uang Darurat; otherwise 'regular'" },
+        funding_source: { type: "STRING", description: "'emergency_fund_deposit' when adding/topping up Dana Darurat; 'emergency_fund' ONLY when withdrawing/using Dana Darurat for an expense; otherwise 'regular'" },
         fallback_category_suggestion: { type: "STRING", description: "Optional underlying budget category (e.g. 'Transportasi', 'Kesehatan', 'Lainnya') when funding_source is 'emergency_fund'" },
       },
     },
@@ -98,6 +98,46 @@ function parseStructuredCoachResponse(raw: unknown): Record<string, any> {
     }
     throw new Error("Failed to parse structured JSON from AI response");
   }
+}
+
+function deriveConversationTitle(rawText: string): string {
+  const clean = rawText.replace(/\s+/g, " ").trim();
+  if (!clean) return "Percakapan FinGuard";
+  return clean.length > 42 ? `${clean.slice(0, 39).trim()}...` : clean;
+}
+
+const PLACEHOLDER_CONV_TITLES = new Set([
+  "",
+  "percakapan baru",
+  "chat coach finguard",
+  "konsultasi finguard",
+  "percakapan finguard",
+]);
+
+async function syncConversationTitleIfPlaceholder(
+  supabaseClient: any,
+  conversationId: string | null,
+  firstMessageText: string,
+): Promise<void> {
+  if (!conversationId) return;
+  try {
+    const { data: convRow } = await supabaseClient
+      .from("chat_conversations")
+      .select("title")
+      .eq("id", conversationId)
+      .maybeSingle();
+    const existingTitle = String(convRow?.title || "").trim();
+    const updatePayload: Record<string, string> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (PLACEHOLDER_CONV_TITLES.has(existingTitle.toLowerCase())) {
+      updatePayload.title = deriveConversationTitle(firstMessageText);
+    }
+    await supabaseClient
+      .from("chat_conversations")
+      .update(updatePayload)
+      .eq("id", conversationId);
+  } catch (_) {}
 }
 
 serve(async (req) => {
@@ -501,6 +541,11 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
             .maybeSingle();
           if (rAMsgFallback) receiptAstMsgId = rAMsgFallback.id;
         }
+        await syncConversationTitleIfPlaceholder(
+          supabaseClient,
+          activeConversationId,
+          message && message.trim().length > 0 ? message : "Scan Foto Nota Belanja",
+        );
       }
 
       // Update ai_request record
@@ -1018,25 +1063,29 @@ ATURAN WAJIB KLASIFIKASI INTENT:
      * Jika 50%-100% Uang Dingin: sarankan pertimbangkan & jeda 48 jam.
      * Jika > Uang Dingin: hitung lama nabung tunai (Harga / Uang Dingin Bulanan), DP 20%, atau simulasi cicilan vs uang dingin, lalu berikan saran kritis/mendidik sesuai persona Coach.
 
-8. PENCATATAN TRANSAKSI AKTIF & PENGGUNAAN DANA DARURAT:
-   HANYA berlaku jika pengguna secara eksplisit mencatat pengeluaran/pemasukan nyata yang sudah dilakukan:
+8. PENCATATAN TRANSAKSI AKTIF & PENGGUNAAN / SETORAN DANA DARURAT:
+   HANYA berlaku jika pengguna secara eksplisit mencatat transaksi nyata, setoran tabungan, atau penarikan Dana Darurat:
    Contoh Pengeluaran: "Makan siang 35.000", "Beli bensin 50rb", "Bayar tagihan listrik 150k".
-   Contoh Pemakaian Dana Darurat: "Ban bocor ambil uang darurat 20rb", "Pakai dana darurat 1,5jt buat biaya RS".
    Contoh Pemasukan: "Gaji masuk 5 juta", "Ada profit di saham 100rb", "Dapet transferan freelance 1jt", "Cuan reksadana 50rb", "Dividen saham masuk 200rb".
-   - Ekstrak ke structured_transaction dengan type: "income" atau "expense".
+   Contoh Menambah / Setor Dana Darurat: "Tambahin dana darurat 100k", "Nabung dana darurat 200rb", "Isi uang darurat 500rb", "Setor ke dana darurat 1jt".
+   Contoh Memakai / Menarik Dana Darurat: "Ban bocor ambil uang darurat 20rb", "Pakai dana darurat 1,5jt buat biaya RS".
+   - Ekstrak ke structured_transaction dengan type: "income", "expense", atau "goal_deposit".
    - Untuk profit saham/reksadana/crypto/dividen: set type = "income", category_suggestion = "Investasi & Dividen", funding_source = "regular".
    - Untuk freelance/usaha/jualan: set type = "income", category_suggestion = "Penjualan & Usaha", funding_source = "regular".
-   - KHUSUS PENGGUNAAN DANA DARURAT ("pakai/ambil/potong/gunakan dana darurat atau uang darurat"):
+   - KHUSUS MENAMBAH / SETOR DANA DARURAT ("tambah/tambahin/isi/setor/nabung dana darurat atau uang darurat"):
+     * JANGAN PERNAH mengklasifikasikannya sebagai type = "income" (Pemasukan)! Ini adalah alokasi setor ke celengan Dana Darurat.
+     * Set type = "goal_deposit", funding_source = "emergency_fund_deposit", category_suggestion = "Dana Darurat".
+     * Sebutkan saldo Dana Darurat nyata saat ini (Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}) dan jelaskan bahwa draf setoran sudah disiapkan — JANGAN katakan saldo sudah bertambah sebelum user menekan Simpan!
+   - KHUSUS MEMAKAI / MENARIK DANA DARURAT ("pakai/ambil/potong/gunakan dana darurat atau uang darurat"):
      * Cek saldo Dana Darurat nyata di database: Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}.
-     * Jika saldo Dana Darurat CUKUP (>= nominal pengeluaran): set funding_source = "emergency_fund", category_suggestion = "Dana Darurat", dan isi fallback_category_suggestion dengan kategori budget yang relevan (misal "Transportasi" untuk tambal ban/servis, "Kesehatan" untuk obat/RS, atau "Lainnya").
+     * Jika saldo Dana Darurat CUKUP (>= nominal pengeluaran): set type = "expense", funding_source = "emergency_fund", category_suggestion = "Dana Darurat", dan isi fallback_category_suggestion dengan kategori budget yang relevan (misal "Transportasi" untuk tambal ban/servis, "Kesehatan" untuk obat/RS, atau "Lainnya").
      * EVALUASI BIJAK COACH DALAM BALASAN (tetap pakai gaya persona user!):
        - Bila pengeluaran kecil/operasional (<= Rp100.000 atau jatah kategori terkait masih longgar di JATAH BELANJA AKTIF), sampaikan saran bijak secara jujur (misal: biaya kecil seperti tambal ban sebaiknya memakai jatah Transportasi agar Dana Darurat yang baru Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")} tetap utuh untuk kondisi genting!), NAMUN hargai perintah user: katakan draf penarikan **Dana Darurat** sudah disiapkan di kartu bawah dan user bisa langsung klik **Simpan** untuk memotong Dana Darurat atau mengganti ke pos kategori reguler sebelum menekan Simpan!
        - Bila saldo Dana Darurat TIDAK CUKUP (< nominal pengeluaran): beri tahu saldo Dana Darurat cuma Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")} sehingga tidak bisa full ditarik dari Dana Darurat, lalu siapkan draf regular (atau minta konfirmasi).
    - HANYA jika ada perintah catat tanpa nominal sama sekali (misal: "Catat pengeluaran makan siang"), set needs_clarification = true.
-   - PERINGATAN WAJIB DRAF & KONFIRMASI:
-     * JANGAN PERNAH menyatakan bahwa transaksi "sudah dicatat" atau "sudah tersimpan di database"! Data ini BARU berupa draf usulan yang butuh konfirmasi pengguna melalui kartu di aplikasi.
-     * Buat respons yang menyatakan bahwa draf transaksi telah disiapkan, lalu arahkan pengguna untuk memeriksa kartu konfirmasi di bawah dan menekan tombol "Simpan" untuk mencatat ke database, atau "Batal" jika tidak jadi.
-     * JANGAN PERNAH menghitung draf transaksi yang ada di riwayat chat jika transaksi tersebut belum pernah tersimpan di database (CATATAN HISTORI TRANSAKSI DATABASE). Rujukan utama Anda adalah data riil transaksi di database, bukan pesan-pesan percakapan sebelumnya!
+   - PERINGATAN WAJIB DRAF & KONFIRMASI + ANTI-HALUSINASI SALDO:
+     * JANGAN PERNAH menyatakan bahwa transaksi atau setoran "sudah dicatat" atau saldo "sudah berubah/bertambah" sebelum tercatat di database! Data baru berupa draf menunggu tombol "Simpan".
+     * SAAT DITANYA SALDO DANA DARURAT / KAS SAAT INI: WAJIB merujuk HANYA pada angka real-time database di atas (Dana Darurat = Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}), DILARANG menjumlahkan draf chat dari riwayat percakapan!
 
 9. PERTANYAAN SINYAL SAHAM, ORDER BOOK, BROKER SUMMARY, SENTIMEN PASAR, MSCI & SAHAM IPO (query_stock_signal):
 ${isStockRelatedQuery ? `   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null.
@@ -1118,16 +1167,19 @@ DATA KEUANGAN REAL-TIME (${finContext.todayStr}, WIB UTC+7):
 - Watchlist Saham: ${stockSignalsSummary}
 
 ATURAN INTENT:
-1. Pertanyaan saldo/pengeluaran/budget/celengan/utang/estimasi bertahan -> jawab presisi dari data di atas (JANGAN halusinasi dari riwayat chat), structured_transaction = null, needs_clarification = false.
+1. Pertanyaan saldo/pengeluaran/budget/celengan/utang/estimasi bertahan -> jawab presisi HANYA dari data database di atas (Dana Darurat nyata = Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}; DILARANG menjumlahkan draf chat yang belum dikonfirmasi!), structured_transaction = null, needs_clarification = false.
 2. Konsultasi pembelian -> hitung rasio terhadap uang dingin (<=50% AMAN DIBELI meski tetap gaya karakter user; 50-100% PERTIMBANGKAN/JEDA 48 JAM; >100% DEFISIT/TUNDA). JANGAN bohong bilang tidak cukup jika <=50% uang dingin! structured_transaction = null, needs_clarification = false.
-3. Perintah mencatat transaksi nyata ("makan siang 35rb", "gaji masuk 5jt", "ambil dana darurat 20rb buat tambal ban") -> isi structured_transaction; jika user minta pakai/ambil Dana Darurat & saldo Dana Darurat cukup (>= nominal), WAJIB set funding_source = "emergency_fund", category_suggestion = "Dana Darurat", dan fallback_category_suggestion = kategori relevan (mis. "Transportasi"). Jika pengeluaran kecil sementara budget reguler masih longgar, beri masukan bijak sesuai persona bahwa lebih baik masuk budget reguler, lalu arahkan pilih sumber dana / klik Simpan di kartu bawah! Jangan bilang "sudah tersimpan".
+3. Perintah mencatat transaksi/tabungan nyata:
+   - Tambah/setor/nabung Dana Darurat ("tambahin dana darurat 100k") -> WAJIB set type = "goal_deposit", funding_source = "emergency_fund_deposit", category_suggestion = "Dana Darurat" (JANGAN jadikan "income"!).
+   - Pakai/ambil Dana Darurat ("ambil dana darurat 20rb buat tambal ban") & saldo cukup -> set type = "expense", funding_source = "emergency_fund", category_suggestion = "Dana Darurat", fallback_category_suggestion = kategori relevan ("Transportasi", dll). Beri saran bijak sesuai persona bila biaya kecil, lalu arahkan klik Simpan di kartu bawah!
+   - Transaksi/pemasukan biasa -> isi structured_transaction dengan funding_source = "regular". Jangan bilang "sudah tersimpan".
 4. Sapaan / chat bebas / makian -> BALAS SEPENUHNYA SESUAI ATURAN KEPRIBADIAN LEVEL ${strictness}/5 DI ATAS (JANGAN melunak jika Level >= 4!), intent = "general_chat", structured_transaction = null.
 
 WAJIB BALAS HANYA SATU OBJEK JSON VALID (tanpa markdown/teks luar):
 {
   "intent": "record_expense | record_income | query_financial_status | query_budget | query_goal | purchase_consultation | query_stock_signal | general_chat",
   "reply": "string",
-  "structured_transaction": { "type": "expense | income", "amount": 0, "currency": "IDR", "transaction_date": "${finContext.todayStr}", "category_suggestion": "string", "note": "string", "funding_source": "regular | emergency_fund", "fallback_category_suggestion": "string" } | null,
+  "structured_transaction": { "type": "expense | income | goal_deposit", "amount": 0, "currency": "IDR", "transaction_date": "${finContext.todayStr}", "category_suggestion": "string", "note": "string", "funding_source": "regular | emergency_fund | emergency_fund_deposit", "fallback_category_suggestion": "string" } | null,
   "needs_clarification": false,
   "missing_fields": [],
   "confidence": 0.95
@@ -1229,13 +1281,30 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
       Number(aiResult.structured_transaction.amount) > 0
     );
 
-    if (hasTransaction && !needsClarification && aiResult.structured_transaction.type === "expense") {
+    if (hasTransaction && !needsClarification) {
       const stx = aiResult.structured_transaction;
-      const userExplicitEmergency =
-        /(?:pakai|pake|ambil|gunakan|gunain|menggunakan|potong|tarik|dari)\s+(?:uang|dana)\s+darurat/i.test(message);
-      const txAmount = Number(stx.amount);
+      const lowerMsg = message.toLowerCase();
+      const userExplicitEmergencyDeposit =
+        /(?:tambah|tambahin|tambahkan|isi|masukin|masukkan|setor|setorin|nabung|tabung|top\s*up|alokasi(?:kan)?)\s+(?:saldo\s+)?(?:ke\s+|untuk\s+|di\s+)?(?:uang|dana)\s+darurat|(?:uang|dana)\s+darurat(?:\s+\w+){0,3}\s+(?:tambah|tambahin|tambahkan|isi|setor|nabung)|(?:tambahin|tambah|isi|setor)\s+(?:uang|dana)\s+darurat/i.test(lowerMsg) ||
+        stx.funding_source === "emergency_fund_deposit" ||
+        stx.type === "goal_deposit" ||
+        (stx.type === "income" && String(stx.category_suggestion || "").toLowerCase().includes("dana darurat"));
 
-      if (userExplicitEmergency || stx.funding_source === "emergency_fund") {
+      const userExplicitEmergencyWithdraw =
+        !userExplicitEmergencyDeposit &&
+        (/(?:pakai|pake|ambil|gunakan|gunain|menggunakan|potong|tarik|dari)\s+(?:uang|dana)\s+darurat/i.test(lowerMsg) ||
+          stx.funding_source === "emergency_fund");
+
+      if (userExplicitEmergencyDeposit) {
+        stx.type = "goal_deposit";
+        stx.funding_source = "emergency_fund_deposit";
+        stx.category_suggestion = "Dana Darurat";
+        delete stx.fallback_category_suggestion;
+        if (!stx.note || String(stx.note).trim() === "") {
+          stx.note = "Setoran Dana Darurat";
+        }
+      } else if (stx.type === "expense" && userExplicitEmergencyWithdraw) {
+        const txAmount = Number(stx.amount);
         // Infer operational fallback category if model only supplied "Dana Darurat"
         const rawCat = String(stx.category_suggestion || "").trim();
         const combinedTxt = `${message} ${stx.note || ""}`.toLowerCase();
@@ -1356,6 +1425,11 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
             .maybeSingle();
           if (aMsgFallback) astMsgId = aMsgFallback.id;
         }
+        await syncConversationTitleIfPlaceholder(
+          supabaseClient,
+          activeConversationId,
+          message,
+        );
       } catch (dbErr) {
         console.error("Error saving chat_messages:", dbErr);
       }

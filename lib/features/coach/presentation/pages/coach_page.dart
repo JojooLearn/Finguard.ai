@@ -1770,20 +1770,28 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
   Widget _buildExtractionConfirmCard(ChatMessageEntity message) {
     final payload = message.structuredPayload!;
     final amount = (payload['amount'] as num?)?.toDouble() ?? 0.0;
-    final isIncome = payload['type'] == 'income';
+    final isEmergencyDeposit =
+        payload['funding_source'] == 'emergency_fund_deposit' ||
+        payload['type'] == 'goal_deposit';
+    final isIncome = !isEmergencyDeposit && payload['type'] == 'income';
     final note = payload['note']?.toString() ?? 'Transaksi Coach';
-    final category =
-        payload['category_suggestion']?.toString() ??
-        (isIncome ? 'Pemasukan' : 'Makan & Minum');
+    final category = isEmergencyDeposit
+        ? 'Dana Darurat'
+        : (payload['category_suggestion']?.toString() ??
+              (isIncome ? 'Pemasukan' : 'Makan & Minum'));
     final isEmergencyFunded =
-        !isIncome && payload['funding_source'] == 'emergency_fund';
+        !isIncome &&
+        !isEmergencyDeposit &&
+        payload['funding_source'] == 'emergency_fund';
     final fallbackCatRaw =
         payload['fallback_category_suggestion']?.toString().trim() ?? '';
     final fallbackCategory = fallbackCatRaw.isNotEmpty
         ? fallbackCatRaw
         : (category.toLowerCase() == 'dana darurat' ? 'Lainnya' : category);
     final hasEmergencyToggle =
-        !isIncome && (isEmergencyFunded || fallbackCatRaw.isNotEmpty);
+        !isIncome &&
+        !isEmergencyDeposit &&
+        (isEmergencyFunded || fallbackCatRaw.isNotEmpty);
     final isRejected =
         payload['rejected'] == true || payload['cancelled'] == true;
 
@@ -1856,7 +1864,12 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
               const SizedBox(height: 12),
 
               // Structured rows
-              _buildExtractRow('Jenis', isIncome ? 'Pemasukan' : 'Pengeluaran'),
+              _buildExtractRow(
+                'Jenis',
+                isEmergencyDeposit
+                    ? 'Setor Tabungan'
+                    : (isIncome ? 'Pemasukan' : 'Pengeluaran'),
+              ),
               const SizedBox(height: 6),
               _buildExtractRow(
                 'Nominal',
@@ -1867,12 +1880,14 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
               _buildExtractRow('Kategori', category),
               const SizedBox(height: 6),
               _buildExtractRow(
-                'Sumber Dana',
-                isIncome
-                    ? 'Pemasukan'
-                    : (isEmergencyFunded
-                          ? 'Potong Dana Darurat'
-                          : 'Pos $fallbackCategory'),
+                isEmergencyDeposit ? 'Tujuan Dana' : 'Sumber Dana',
+                isEmergencyDeposit
+                    ? 'Celengan Dana Darurat'
+                    : (isIncome
+                          ? 'Pemasukan'
+                          : (isEmergencyFunded
+                                ? 'Potong Dana Darurat'
+                                : 'Pos $fallbackCategory')),
               ),
               const SizedBox(height: 6),
               _buildExtractRow('Catatan', note),
@@ -2004,9 +2019,11 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    isEmergencyFunded
-                        ? 'Saldo Dana Darurat berhasil dipotong & transaksi dicatat.'
-                        : 'Transaksi berhasil disimpan ke pos anggaran.',
+                    isEmergencyDeposit
+                        ? 'Setoran berhasil ditambahkan ke Dana Darurat.'
+                        : (isEmergencyFunded
+                              ? 'Saldo Dana Darurat berhasil dipotong & transaksi dicatat.'
+                              : 'Transaksi berhasil disimpan ke pos anggaran.'),
                     style: const TextStyle(
                       fontSize: 11,
                       color: AppColors.success,

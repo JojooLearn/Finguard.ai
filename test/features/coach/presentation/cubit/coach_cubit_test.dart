@@ -524,5 +524,99 @@ void main() {
             ),
       ],
     );
+
+    blocTest<CoachCubit, CoachState>(
+      'deposits into Dana Darurat goal without creating fake income transaction when funding_source is emergency_fund_deposit',
+      build: () {
+        final mockGoalRepo = MockGoalRepository();
+        final now = DateTime.now();
+
+        when(() => mockGoalRepo.getGoals()).thenAnswer((_) async => Success([
+              GoalEntity(
+                id: 'goal-emergency-1',
+                userId: 'user-1',
+                name: 'Dana Darurat',
+                goalType: GoalType.emergencyFund,
+                targetAmount: 6750000,
+                currentAmount: 200000,
+                createdAt: now,
+                updatedAt: now,
+              ),
+            ]));
+
+        when(() => mockGoalRepo.addContribution(
+              goalId: 'goal-emergency-1',
+              amount: 100000.0,
+              date: any(named: 'date'),
+              note: any(named: 'note'),
+            )).thenAnswer((_) async => Success(GoalEntity(
+              id: 'goal-emergency-1',
+              userId: 'user-1',
+              name: 'Dana Darurat',
+              goalType: GoalType.emergencyFund,
+              targetAmount: 6750000,
+              currentAmount: 300000,
+              createdAt: now,
+              updatedAt: now,
+            )));
+
+        when(() => mockCoachRepo.updateMessageMetadata(
+              messageId: any(named: 'messageId'),
+              metadata: any(named: 'metadata'),
+            )).thenAnswer((_) async {});
+
+        return CoachCubit(
+          coachRepository: mockCoachRepo,
+          transactionRepository: mockTxRepo,
+          goalRepository: mockGoalRepo,
+        );
+      },
+      seed: () => CoachLoaded(messages: [
+        ChatMessageEntity(
+          id: '55555555-5555-4555-8555-555555555555',
+          conversationId: 'conv-1',
+          senderType: ChatSenderType.assistant,
+          content: 'Setoran Dana Darurat Rp100.000 siap disimpan.',
+          createdAt: testDate,
+          structuredPayload: const {
+            'amount': 100000.0,
+            'type': 'goal_deposit',
+            'note': 'Penambahan dana darurat',
+            'category_suggestion': 'Dana Darurat',
+            'funding_source': 'emergency_fund_deposit',
+          },
+        ),
+      ]),
+      act: (cubit) async {
+        final msg = (cubit.state as CoachLoaded).messages.first;
+        await cubit.confirmExtractedTransaction(msg);
+      },
+      expect: () => [
+        isA<CoachLoaded>().having(
+          (s) => s.confirmingMessageId,
+          'confirmingMessageId',
+          '55555555-5555-4555-8555-555555555555',
+        ),
+        isA<CoachLoaded>()
+            .having((s) => s.confirmingMessageId, 'confirmingMessageId', null)
+            .having((s) => s.messages.first.isConfirmed, 'isConfirmed', true)
+            .having(
+              (s) => s.messages.first.structuredPayload?['goal_id'],
+              'goal_id',
+              'goal-emergency-1',
+            ),
+      ],
+      verify: (_) {
+        verifyNever(() => mockTxRepo.createTransaction(
+              amount: any(named: 'amount'),
+              type: any(named: 'type'),
+              transactionDate: any(named: 'transactionDate'),
+              categoryId: any(named: 'categoryId'),
+              note: any(named: 'note'),
+              source: any(named: 'source'),
+              clientRequestId: any(named: 'clientRequestId'),
+            ));
+      },
+    );
   });
 }

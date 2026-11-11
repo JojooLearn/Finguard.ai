@@ -381,7 +381,12 @@ class CoachCubit extends Cubit<CoachState> {
     final currentState = state as CoachLoaded;
     final payload = message.structuredPayload;
     if (payload == null) return;
-    if (payload['rejected'] == true || payload['cancelled'] == true) return;
+    if (payload['rejected'] == true ||
+        payload['cancelled'] == true ||
+        payload['funding_source'] == 'emergency_fund_deposit' ||
+        payload['type'] == 'goal_deposit') {
+      return;
+    }
 
     final currentCat = payload['category_suggestion']?.toString() ?? 'Lainnya';
     final fallbackCat =
@@ -433,9 +438,111 @@ class CoachCubit extends Cubit<CoachState> {
 
     try {
       final amount = (payload['amount'] as num).toDouble();
-      final isIncome = payload['type'] == 'income';
+      final isEmergencyDeposit =
+          payload['funding_source'] == 'emergency_fund_deposit' ||
+          payload['type'] == 'goal_deposit';
+      final isIncome = !isEmergencyDeposit && payload['type'] == 'income';
       final note = payload['note']?.toString() ?? 'Transaksi Coach AI';
       final clientReqId = _uuid.v4();
+
+      // Path A: Setor / Tambah ke Dana Darurat (goal_contributions, BUKAN transaksi income/expense biasa)
+      if (isEmergencyDeposit) {
+        if (goalRepository == null) {
+          final latestState = state is CoachLoaded
+              ? (state as CoachLoaded)
+              : currentState;
+          emit(latestState.copyWith(
+            clearConfirming: true,
+            confirmFeedbackMessage:
+                'Layanan Target Tabungan belum tersedia untuk memproses setoran Dana Darurat.',
+          ));
+          return;
+        }
+
+        final goalsRes = await goalRepository!.getGoals();
+        final goalsList = goalsRes.fold((g) => g, (_) => <GoalEntity>[]);
+        GoalEntity? emergencyGoal = goalsList.where((g) {
+          return g.goalType == GoalType.emergencyFund ||
+              g.name.toLowerCase().contains('dana darurat');
+        }).firstOrNull;
+
+        if (emergencyGoal == null) {
+          final createRes = await goalRepository!.createGoal(
+            name: 'Dana Darurat',
+            type: GoalType.emergencyFund,
+            targetAmount: amount * 3,
+            priority: 5,
+          );
+          emergencyGoal = createRes.fold((g) => g, (_) => null);
+        }
+
+        if (emergencyGoal == null) {
+          final latestState = state is CoachLoaded
+              ? (state as CoachLoaded)
+              : currentState;
+          emit(latestState.copyWith(
+            clearConfirming: true,
+            confirmFeedbackMessage:
+                'Gagal menemukan atau membuat celengan Dana Darurat.',
+          ));
+          return;
+        }
+
+        final depositRes = await goalRepository!.addContribution(
+          goalId: emergencyGoal.id,
+          amount: amount,
+          date: DateTime.now(),
+          note: note.isNotEmpty ? note : 'Setoran Dana Darurat via Coach AI',
+        );
+        final savedGoal = depositRes.fold((g) => g, (_) => null);
+        if (savedGoal == null) {
+          final latestState = state is CoachLoaded
+              ? (state as CoachLoaded)
+              : currentState;
+          emit(latestState.copyWith(
+            clearConfirming: true,
+            confirmFeedbackMessage:
+                'Gagal menyimpan setoran ke Dana Darurat. Coba lagi ya.',
+          ));
+          return;
+        }
+
+        final confirmedMetadata = <String, dynamic>{
+          ...?message.structuredPayload,
+          'type': 'goal_deposit',
+          'funding_source': 'emergency_fund_deposit',
+          'confirmed': true,
+          'goal_id': savedGoal.id,
+        };
+
+        try {
+          await coachRepository.updateMessageMetadata(
+            messageId: message.id,
+            metadata: confirmedMetadata,
+          );
+        } catch (_) {}
+
+        final latestState = state is CoachLoaded
+            ? (state as CoachLoaded)
+            : currentState;
+        final updatedMessages = latestState.messages.map((m) {
+          if (m.id == message.id) {
+            return m.copyWith(
+              isConfirmed: true,
+              structuredPayload: confirmedMetadata,
+            );
+          }
+          return m;
+        }).toList();
+
+        emit(latestState.copyWith(
+          messages: updatedMessages,
+          clearConfirming: true,
+          clearFeedback: true,
+        ));
+        return;
+      }
+
       final useEmergencyFund =
           !isIncome && payload['funding_source'] == 'emergency_fund';
 
