@@ -35,3 +35,4 @@ END $$;
 -- 2. Create unique index matching the application's upsert onConflict: user_id,period_start,period_end
 CREATE UNIQUE INDEX IF NOT EXISTS idx_monthly_reviews_user_period_unique
 ON public.monthly_reviews (user_id, period_start, period_end);
+

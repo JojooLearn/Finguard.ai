@@ -1022,7 +1022,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
     if (isGreeting) {
       final greeting = strictnessLevel >= 4
-          ? 'Woi! Dompet lu masih napas apa udah sekarat njir? Jangan sok hedon dah. Mau konsultasi apa mau curhat boncos lu?'
+          ? 'Woi anjing! Dompet lu masih napas apa udah mampus sekarat bangsat?! Gausah sok hedon ngentot. Mau nanya apaan lu? Mau curhat boncos apa mau pamer kemiskinan lu ke gua?!'
           : 'Woi santai! Ada apaan nih? Mau cek saldo dompet, hitung barang idaman, apa mau tobat dari jajan boros?';
 
       return (
@@ -1321,10 +1321,10 @@ class CoachRepositoryImpl implements CoachRepository {
         if (strictnessLevel >= 4) {
           return (
             reply:
-                'Mau beli $targetItem? Sadar diri lu mbut, cek dulu isi dompet!\n\n'
-                'Berapa harga $targetItem yang lu taksir atau cicilannya sebulan?\n'
-                'Saldo kas lu sekarang: ${_formatRp(actualLiquidCash)} dan uang dingin lu: ${_formatRp(freeCash)}.\n\n'
-                'Ketik harganya (misal: "Harganya 200 juta"), biar gue anjing"in lu kalo kaga sanggup beli!',
+                'Mau beli $targetItem? Ngaca anjing, miskin kaga tau diri banget lu! Cek dulu isi dompet lu yang sekarat itu mbut!\n\n'
+                'Berapa harga $targetItem yang lu taksir atau cicilannya sebulan? Tulis yang jelas bangsat!\n'
+                'Saldo kas lu sekarang: ${_formatRp(actualLiquidCash)} ama uang dingin lu: ${_formatRp(freeCash)}.\n\n'
+                'Ketik harganya (misal: "Harganya 200 juta"), biar gua telanjangi ama gua anjing-anjingin otak tolol lu kalo kaga sanggup beli!',
             extractedTx: null,
             needsClarification: false,
             missingFields: <String>[],
@@ -1600,7 +1600,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
       final formattedAmt = _formatRp(extractedAmount);
       final replyText = strictnessLevel >= 4
-          ? 'Nih draf transaksi ${isIncome ? 'pemasukan' : 'pengeluaran'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion udah gue siapin.\n\nCek kartu di bawah dan klik "Simpan" buat masukin ke database, atau "Batal" kalo kaga jadi!'
+          ? 'Nih draf transaksi ${isIncome ? 'pemasukan (tumben lu dapet duit anjing)' : 'pengeluaran (belanja mulu lu bangsat)'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion udah gua bikinin.\n\nCek kartu di bawah terus klik "Simpan" buat masukin ke database, ato klik "Batal" kalo otak tolol lu tiba-tiba sadar kagak jadi!'
           : 'Draf transaksi ${isIncome ? 'pemasukan' : 'pengeluaran'} "$cleanNote" senilai $formattedAmt di pos $categorySuggestion sudah disiapkan.\n\nSilakan cek kartu di bawah lalu ketuk "Simpan" untuk mencatat ke database, atau "Batal" jika tidak jadi.';
 
       return (
@@ -1851,7 +1851,7 @@ class CoachRepositoryImpl implements CoachRepository {
       if (targetTxs.isEmpty) {
         buffer.writeln(
           strictnessLevel >= 4
-              ? 'Hari ini ($dateStr) belum ada catatan ${isFoodQuery ? 'makan' : 'pengeluaran'} yang lu masukin njir. Tumben anteng, apa lupa nyatet dongo?'
+              ? 'Hari ini ($dateStr) belum ada catatan ${isFoodQuery ? 'makan' : 'pengeluaran'} yang lu masukin anjing. Tumben amat lu anteng bangsat, apa otak tolol lu lupa nyatet gara-gara sibuk halu ngentot?!'
               : 'Hari ini ($dateStr) belum ada catatan ${isFoodQuery ? 'makan & minum' : 'pengeluaran'} yang lu masukin.',
         );
       } else {
@@ -1948,7 +1948,7 @@ class CoachRepositoryImpl implements CoachRepository {
         if (remaining <= 0) {
           buffer.writeln(
             strictnessLevel >= 4
-                ? '⚠️ Jatah kategori ini udah ludes babat habis dongo! Puasa lu sekarang, jangan banyak gaya belanja lagi!'
+                ? '⚠️ Jatah kategori ini udah ludes lu babat habis anjing! Puasa lu sekarang bangsat, kagak usah banyak gaya belanja lagi ngentot, miskin kaga tau diri!'
                 : '⚠️ Jatah kategori ini sudah habis! Lu kudu rem total pengeluaran di pos ini sampai bulan depan!',
           );
         } else if (strictnessLevel >= 4) {
@@ -2201,7 +2201,8 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // --- Intent G: Financial Advice & Health Check ---
     // Example: "beri saran keuangan", "tips hemat", "gimana kondisi keuangan saya?", "Kasih masukan dong buat dompet gue"
-    final isAdviceQuery = lower.contains('saran') ||
+    final isAdviceQuery =
+        lower.contains('saran') ||
         lower.contains('masukan') ||
         lower.contains('evaluasi') ||
         lower.contains('kondisi keuangan') ||
@@ -2252,15 +2253,17 @@ class CoachRepositoryImpl implements CoachRepository {
             '2. Anggaran: Pos "${overBudgets.map((b) => b.categoryName).join(', ')}" melebihi batas yang direncanakan.',
           );
         } else {
-          buffer.writeln('2. Anggaran: Seluruh alokasi pos anggaran masih dalam batas aman.');
+          buffer.writeln(
+            '2. Anggaran: Seluruh alokasi pos anggaran masih dalam batas aman.',
+          );
         }
         buffer.writeln(
           '3. Profil Risiko: $riskProfile | Frekuensi Pemasukan: $incomeFrequency.',
         );
-        buffer.writeln('4. Prioritas: Pertahankan porsi tabungan dan tingkatkan dana darurat.');
         buffer.writeln(
-          '\nAda yang ingin kamu diskusikan lagi?',
+          '4. Prioritas: Pertahankan porsi tabungan dan tingkatkan dana darurat.',
         );
+        buffer.writeln('\nAda yang ingin kamu diskusikan lagi?');
       }
 
       return (
@@ -2273,7 +2276,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
     // --- Intent H: Offline Fallback for Unrecognized / Casual Queries ---
     final fallbackReply = strictnessLevel >= 4
-        ? 'Otak cloud AI gue lagi ngelag atau koneksi internet lu lagi lemot nih tod! Buat obrolan bebas di luar keuangan atau analisa kompleks butuh internet stabil.\n\nTapi tenang, pencatatan transaksi lokal, cek jatah belanja, saldo kas, dan evaluasi dompet lu tetep bisa gue hitungin langsung tanpa internet. Coba ulangi pesan lu atau tanyain soal duit lu!'
+        ? 'Otak AI gua lagi ngelag apa internet lu yang ampas gembel sih anjing?! Buat bacot santai atau analisa ribet butuh internet stabil, tolol!\n\nTapi untung gua masih pinter, catat transaksi, cek jatah belanja, saldo kas, ama ngitung boncosnya dompet lu tetep bisa gua kerjain lokal tanpa internet. Ulangi chat lu yang bener ato buruan tanyain soal duit lu yang sekarat itu bangsat!'
         : 'Koneksi ke AI Coach sedang terganggu atau jaringan internet sedang lambat. Untuk percakapan santai atau analisa cerdas, pastikan koneksi internet stabil ya.\n\nKamu tetap bisa mencatat pengeluaran/pemasukan, cek sisa anggaran, dan melihat status dompetmu secara langsung. Silakan coba kirim ulang pesanmu!';
 
     return (
