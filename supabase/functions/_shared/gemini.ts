@@ -224,34 +224,110 @@ export function wrapPcm16ToWavBase64(pcmBase64: string, sampleRate = 24000): str
   return btoa(outBin);
 }
 
+export interface CoachVoiceProfile {
+  voiceName: string;
+  characterLabel: string;
+  styleInstruction: string;
+}
+
 /**
- * Generates contextual AI Voice-Out (Gemini AUDIO modality / TTS) when request_audio === true.
+ * Maps FinGuard's active Coach persona (`strictnessLevel` 1..5) to a distinct
+ * Gemini HD voice preset and natural Indonesian speaking direction.
+ */
+export function resolveCoachVoiceProfile(strictnessLevel = 3): CoachVoiceProfile {
+  if (strictnessLevel <= 2) {
+    return {
+      voiceName: "Aoede",
+      characterLabel: "Suportif",
+      styleInstruction:
+        "Bacakan kalimat berikut dengan suara wanita Indonesia yang hangat, lembut, ramah, dan suportif menyemangati seperti sahabat dekat",
+    };
+  }
+  if (strictnessLevel === 3) {
+    return {
+      voiceName: "Charon",
+      characterLabel: "Pro",
+      styleInstruction:
+        "Bacakan kalimat berikut dengan intonasi profesional yang tenang, jernih, tegas, dan berwibawa dalam Bahasa Indonesia yang natural",
+    };
+  }
+  return {
+    voiceName: "Fenrir",
+    characterLabel: "Roast",
+    styleInstruction:
+      "Bacakan kalimat berikut dengan gaya bicara santai namun tegas, tajam, ekspresif, agak sarkas, dan berenergi seperti teman tongkrongan Indonesia yang lagi meroasting",
+  };
+}
+
+function sanitizeTextForSpeechSynthesis(rawText: string): string {
+  const clean = rawText
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[━─═_]{3,}/g, ", ")
+    .replace(/[*#`~>|]/g, "")
+    .replace(/(^|\n)\s*[•\-]\s+/g, "$1")
+    .replace(/Rp\.?\s*(\d[\d.]*)/gi, "$1 rupiah")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .replace(/\n+/g, ". ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  if (clean.length <= 450) return clean;
+  const sliced = clean.slice(0, 450);
+  const lastBreak = Math.max(sliced.lastIndexOf("."), sliced.lastIndexOf(","));
+  return (lastBreak > 180 ? sliced.slice(0, lastBreak + 1) : sliced).trim();
+}
+
+function parseSampleRateFromMime(mimeType: string, fallback = 24000): number {
+  const match = mimeType.match(/rate=(\d+)/i);
+  if (match && match[1]) {
+    const parsed = Number(match[1]);
+    if (Number.isFinite(parsed) && parsed >= 8000 && parsed <= 48000) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Generates contextual AI Voice-Out via Gemini Native TTS (`gemini-2.5-flash-preview-tts`)
+ * when `request_audio === true`, matching the active Coach character's voice and style.
  */
 export async function generateGeminiSpeechAudio(
   textToSpeak: string,
-  voiceName = "Puck"
+  strictnessOrVoice: number | string = 3,
+  timeoutMs = 7000
 ): Promise<string | null> {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey || !textToSpeak || textToSpeak.trim().length === 0) return null;
 
-  const cleanText = textToSpeak
-    .replace(/[*#_`~]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 700);
+  const cleanText = sanitizeTextForSpeechSynthesis(textToSpeak);
+  if (!cleanText) return null;
 
-  const audioModels = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-  ];
+  const profile: CoachVoiceProfile =
+    typeof strictnessOrVoice === "number"
+      ? resolveCoachVoiceProfile(strictnessOrVoice)
+      : {
+          voiceName: strictnessOrVoice,
+          characterLabel: "Custom",
+          styleInstruction:
+            "Bacakan balasan Coach keuangan ini dengan nada santai dan natural dalam Bahasa Indonesia",
+        };
 
-  // Configure Gemini with responseModalities & speechConfig per feature spec
+  const envTtsModel = Deno.env.get("GEMINI_TTS_MODEL");
+  const audioModels = Array.from(
+    new Set([
+      ...(envTtsModel ? [envTtsModel] : []),
+      "gemini-2.5-flash-preview-tts",
+      "gemini-2.5-pro-preview-tts",
+    ])
+  );
+
   const geminiConfig = {
     responseModalities: ["AUDIO"],
     speechConfig: {
       voiceConfig: {
         prebuiltVoiceConfig: {
-          voiceName,
+          voiceName: profile.voiceName,
         },
       },
     },
@@ -259,6 +335,8 @@ export async function generateGeminiSpeechAudio(
 
   for (const model of audioModels) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -269,30 +347,40 @@ export async function generateGeminiSpeechAudio(
               role: "user",
               parts: [
                 {
-                  text: `Bacakan balasan Coach keuangan ini dengan nada santai dan natural dalam Bahasa Indonesia: "${cleanText}"`,
+                  text: `${profile.styleInstruction}:\n\n"${cleanText}"`,
                 },
               ],
             },
           ],
           generationConfig: geminiConfig,
         }),
+        signal: controller.signal,
       });
 
-      if (!res.ok) continue;
+      if (!res.ok) {
+        const errSnippet = (await res.text()).slice(0, 160);
+        console.warn(`[gemini-tts] ${model} HTTP ${res.status}: ${errSnippet}`);
+        continue;
+      }
+
       const json = await res.json();
       const parts = json.candidates?.[0]?.content?.parts || [];
       for (const p of parts) {
         const inline = p.inlineData || p.inline_data;
         if (inline?.data) {
           const mime = String(inline.mimeType || inline.mime_type || "").toLowerCase();
-          if (mime.includes("pcm") || mime.includes("l16") || !mime.includes("mp3")) {
-            return wrapPcm16ToWavBase64(inline.data, 24000);
+          if (mime.includes("mp3") || mime.includes("mpeg") || mime.includes("wav")) {
+            return inline.data;
           }
-          return inline.data;
+          const rate = parseSampleRateFromMime(mime, 24000);
+          return wrapPcm16ToWavBase64(inline.data, rate);
         }
       }
-    } catch (_) {
-      // Try next audio candidate model
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[gemini-tts] ${model} failed: ${msg}`);
+    } finally {
+      clearTimeout(timer);
     }
   }
 

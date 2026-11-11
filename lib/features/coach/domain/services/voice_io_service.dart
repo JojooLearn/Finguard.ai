@@ -60,6 +60,7 @@ class VoiceIoService {
   final FlutterTts _flutterTts;
   bool _isInitialized = false;
   bool _isTtsConfigured = false;
+  int? _configuredStrictnessLevel;
   bool _isSpeaking = false;
 
   VoidCallback? onTtsStateChanged;
@@ -73,38 +74,120 @@ class VoiceIoService {
   bool get isListening => _speechToText.isListening;
   bool get isSpeaking => _isSpeaking;
 
-  /// Configures on-device Indonesian Text-to-Speech (`id-ID`) with natural pitch and pace.
-  Future<void> ensureTtsConfigured() async {
-    if (_isTtsConfigured) return;
-    try {
-      await _flutterTts.setLanguage('id-ID');
-      await _flutterTts.setPitch(1.0);
-      // Note: FlutterTts scales Android rate * 2.0f internally (0.48 * 2.0 = 0.96x natural pace).
-      await _flutterTts.setSpeechRate(0.48);
-      await _flutterTts.setVolume(1.0);
+  /// Resolves local fallback pitch/speech rate differentiated per active Coach character.
+  static ({double pitch, double speechRate, String characterTier})
+      resolveLocalVoiceParams(int? strictnessLevel) {
+    final level = strictnessLevel ?? 3;
+    if (level <= 2) {
+      // Suportif: warmer pitch, gentle reassuring pace
+      return (pitch: 1.12, speechRate: 0.45, characterTier: 'suportif');
+    }
+    if (level >= 4) {
+      // Roast: deeper punchier pitch, faster energetic delivery
+      return (pitch: 0.88, speechRate: 0.54, characterTier: 'roast');
+    }
+    // Pro / Default (level 3): balanced natural pace
+    return (pitch: 1.0, speechRate: 0.48, characterTier: 'pro');
+  }
 
-      _flutterTts.setStartHandler(() {
-        _isSpeaking = true;
-        onTtsStateChanged?.call();
-      });
-      _flutterTts.setCompletionHandler(() {
-        _isSpeaking = false;
-        onTtsStateChanged?.call();
-      });
-      _flutterTts.setCancelHandler(() {
-        _isSpeaking = false;
-        onTtsStateChanged?.call();
-      });
-      _flutterTts.setPauseHandler(() {
-        _isSpeaking = false;
-        onTtsStateChanged?.call();
-      });
-      _flutterTts.setErrorHandler((_) {
-        _isSpeaking = false;
-        onTtsStateChanged?.call();
-      });
+  Future<void> _selectIndonesianDeviceVoiceIfAvailable(
+    String characterTier,
+  ) async {
+    try {
+      final rawVoices = await _flutterTts.getVoices;
+      if (rawVoices is! List) return;
+      final idVoices = rawVoices
+          .whereType<Map>()
+          .where((v) {
+            final locale = v['locale']?.toString().toLowerCase() ?? '';
+            return locale.startsWith('id');
+          })
+          .toList();
+      if (idVoices.length <= 1) return;
+
+      idVoices.sort((a, b) =>
+          (a['name']?.toString() ?? '').compareTo(b['name']?.toString() ?? ''));
+
+      Map selected;
+      if (characterTier == 'suportif') {
+        selected = idVoices.firstWhere(
+          (v) {
+            final name = v['name']?.toString().toLowerCase() ?? '';
+            final gender = v['gender']?.toString().toLowerCase() ?? '';
+            return gender == 'female' ||
+                name.contains('idc') ||
+                name.contains('idd') ||
+                name.contains('female');
+          },
+          orElse: () => idVoices.first,
+        );
+      } else if (characterTier == 'roast') {
+        selected = idVoices.firstWhere(
+          (v) {
+            final name = v['name']?.toString().toLowerCase() ?? '';
+            final gender = v['gender']?.toString().toLowerCase() ?? '';
+            return gender == 'male' ||
+                name.contains('dfz') ||
+                name.contains('ide') ||
+                name.contains('male');
+          },
+          orElse: () => idVoices.last,
+        );
+      } else {
+        selected = idVoices[idVoices.length ~/ 2];
+      }
+
+      final name = selected['name']?.toString();
+      final locale = selected['locale']?.toString();
+      if (name != null && locale != null) {
+        await _flutterTts.setVoice({'name': name, 'locale': locale});
+      }
+    } catch (_) {
+      // Platform/mock may not support getVoices; pitch + rate still differentiate character cleanly.
+    }
+  }
+
+  /// Configures on-device Indonesian Text-to-Speech (`id-ID`) with character-tuned pitch and pace.
+  Future<void> ensureTtsConfigured({int? strictnessLevel}) async {
+    final effectiveLevel = strictnessLevel ?? 3;
+    if (_isTtsConfigured && _configuredStrictnessLevel == effectiveLevel) {
+      return;
+    }
+
+    final params = resolveLocalVoiceParams(strictnessLevel);
+    try {
+      if (!_isTtsConfigured) {
+        await _flutterTts.setLanguage('id-ID');
+        await _flutterTts.setVolume(1.0);
+
+        _flutterTts.setStartHandler(() {
+          _isSpeaking = true;
+          onTtsStateChanged?.call();
+        });
+        _flutterTts.setCompletionHandler(() {
+          _isSpeaking = false;
+          onTtsStateChanged?.call();
+        });
+        _flutterTts.setCancelHandler(() {
+          _isSpeaking = false;
+          onTtsStateChanged?.call();
+        });
+        _flutterTts.setPauseHandler(() {
+          _isSpeaking = false;
+          onTtsStateChanged?.call();
+        });
+        _flutterTts.setErrorHandler((_) {
+          _isSpeaking = false;
+          onTtsStateChanged?.call();
+        });
+      }
+
+      await _flutterTts.setPitch(params.pitch);
+      await _flutterTts.setSpeechRate(params.speechRate);
+      await _selectIndonesianDeviceVoiceIfAvailable(params.characterTier);
 
       _isTtsConfigured = true;
+      _configuredStrictnessLevel = effectiveLevel;
     } catch (e) {
       debugPrint('VoiceIoService TTS init failed: $e');
     }
@@ -142,12 +225,12 @@ class VoiceIoService {
   }
 
   /// Speaks [text] aloud natively on-device using `flutter_tts` in Indonesian (`id-ID`).
-  Future<void> speak(String text) async {
+  Future<void> speak(String text, {int? strictnessLevel}) async {
     final cleanText = sanitizeTextForSpeech(text);
     if (cleanText.isEmpty) return;
 
     await stopSpeaking();
-    await ensureTtsConfigured();
+    await ensureTtsConfigured(strictnessLevel: strictnessLevel);
 
     try {
       _isSpeaking = true;

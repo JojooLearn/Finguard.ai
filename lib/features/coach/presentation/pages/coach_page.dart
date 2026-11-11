@@ -157,6 +157,16 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
     }
   }
 
+  int? _resolveActiveStrictnessLevel() {
+    try {
+      final profileState = context.read<ProfileCubit>().state;
+      if (profileState is ProfileLoaded) {
+        return profileState.profile.strictnessLevel;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> _togglePlayMessageAudio(ChatMessageEntity message) async {
     final isCurrentTtsPlaying =
         _activePlayingMessageId == message.id && _isTtsSpeaking;
@@ -175,34 +185,37 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
       });
     }
 
-    // Primary: On-Device TTS (`flutter_tts`) when triggered by Voice-In or pure text message
-    if (message.isVoiceOut || message.effectiveAudioBase64 == null) {
-      await _voiceIoService.speak(message.content);
-      return;
-    }
+    final strictnessLevel = _resolveActiveStrictnessLevel();
 
-    // Legacy fallback: In-memory AudioPlayer for historical messages with base64 WAV
+    // Primary: Gemini Native HD Voice-Out WAV (`audio_base64` returned from Edge Function)
     final base64Str = message.effectiveAudioBase64;
-    if (base64Str == null || base64Str.isEmpty) return;
+    if (base64Str != null && base64Str.isNotEmpty) {
+      try {
+        final player = _getOrCreateAudioPlayer();
+        if (mounted) setState(() => _isAudioPlaying = true);
 
-    try {
-      final player = _getOrCreateAudioPlayer();
-      if (mounted) setState(() => _isAudioPlaying = true);
-
-      final source = InMemoryWavAudioSource.fromBase64(
-        base64Str,
-        tag: message.id,
-      );
-      await player.setAudioSource(source);
-      await player.play();
-    } catch (e) {
-      debugPrint('In-memory audio playback error: $e');
-      if (mounted) {
-        setState(() {
-          _isAudioPlaying = false;
-        });
+        final source = InMemoryWavAudioSource.fromBase64(
+          base64Str,
+          tag: message.id,
+        );
+        await player.setAudioSource(source);
+        await player.play();
+        return;
+      } catch (e) {
+        debugPrint('Gemini HD audio playback error (falling back to local TTS): $e');
+        if (mounted) {
+          setState(() {
+            _isAudioPlaying = false;
+          });
+        }
       }
     }
+
+    // Fallback: On-Device TTS (`flutter_tts`) tuned per active Coach character
+    await _voiceIoService.speak(
+      message.content,
+      strictnessLevel: strictnessLevel,
+    );
   }
 
   void _toggleVoiceInput() {
@@ -1119,7 +1132,10 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
                     Text(
                       isCurrentPlaying
                           ? 'Ketuk untuk jeda'
-                          : 'Ketuk untuk dengarkan balasan',
+                          : (message.structuredPayload?['voice_character'] !=
+                                    null
+                                ? 'Suara ${message.structuredPayload!['voice_character']} • Ketuk untuk dengar'
+                                : 'Ketuk untuk dengarkan balasan'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.caption.copyWith(

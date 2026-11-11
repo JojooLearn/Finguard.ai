@@ -436,6 +436,8 @@ class CoachRepositoryImpl implements CoachRepository {
     String coachReply = '';
     Map<String, dynamic>? structuredData;
     String? audioBase64;
+    String? remoteAudioBase64;
+    String? remoteVoiceCharacter;
     bool needsClarification = false;
     List<String> missingFields = [];
     ChatMessageStatus messageStatus = ChatMessageStatus.completed;
@@ -501,6 +503,8 @@ class CoachRepositoryImpl implements CoachRepository {
           coachReply = msgMap?['content']?.toString() ??
               data['reply']?.toString() ??
               '';
+          remoteAudioBase64 = data['audio_base64']?.toString();
+          remoteVoiceCharacter = data['voice_character']?.toString();
           final rawAstId = msgMap?['id']?.toString() ??
               data['assistant_message_id']?.toString();
           if (rawAstId != null && rawAstId.isNotEmpty) {
@@ -556,15 +560,21 @@ class CoachRepositoryImpl implements CoachRepository {
       }
     }
 
-    // Communication Mirroring Contract (On-Device TTS):
-    // Server returns pure text only (no audio_base64 bandwidth overhead).
-    // - requestAudio == true  -> marks message with voice_out & triggers on-device flutter_tts
+    // Hybrid Communication Mirroring Contract:
+    // - requestAudio == true -> prefer Gemini Native HD Voice WAV (`audio_base64` returned from Edge Function)
+    //   and retain `voice_out: true` metadata for character-tuned on-device fallback playback.
     // - requestAudio == false -> silent mode (no TTS)
-    audioBase64 = null;
+    audioBase64 = (requestAudio &&
+            remoteAudioBase64 != null &&
+            remoteAudioBase64.trim().isNotEmpty)
+        ? remoteAudioBase64.trim()
+        : null;
     if (requestAudio) {
       structuredData = {
         ...?structuredData,
         'voice_out': true,
+        if (remoteVoiceCharacter != null && remoteVoiceCharacter.isNotEmpty)
+          'voice_character': remoteVoiceCharacter,
       };
     }
 

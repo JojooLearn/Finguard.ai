@@ -3,7 +3,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthenticatedUser } from "../_shared/auth.ts";
 import { ApiError, errorResponse, jsonResponse } from "../_shared/errors.ts";
-import { callGemini } from "../_shared/gemini.ts";
+import {
+  callGemini,
+  generateGeminiSpeechAudio,
+  resolveCoachVoiceProfile,
+} from "../_shared/gemini.ts";
 import { callGroq, GroqMessage } from "../_shared/groq.ts";
 import {
   getUserFinancialContext,
@@ -1374,6 +1378,19 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
       assistantMetadata.needs_clarification = true;
     }
 
+    const wantAudio = request_audio === true;
+    const voiceProfile = wantAudio ? resolveCoachVoiceProfile(strictness) : null;
+    if (wantAudio && voiceProfile) {
+      assistantMetadata.voice_out = true;
+      assistantMetadata.voice_character = voiceProfile.characterLabel;
+    }
+
+    // Run Gemini Native TTS synthesis in parallel with DB persistence when voice output is requested
+    const ttsPromise: Promise<string | null> =
+      wantAudio && replyText.length > 0
+        ? generateGeminiSpeechAudio(replyText, strictness).catch(() => null)
+        : Promise.resolve(null);
+
     const resultRef: Record<string, unknown> = {
       reply: replyText,
       source_engine: sourceEngine,
@@ -1492,6 +1509,8 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
       })
       .eq("id", aiRequest.id);
 
+    const audioBase64 = await ttsPromise;
+
     return jsonResponse({
       success: true,
       conversation_id: activeConversationId,
@@ -1504,6 +1523,8 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
       },
       source_engine: sourceEngine,
       reply: replyText,
+      audio_base64: audioBase64,
+      voice_character: voiceProfile?.characterLabel ?? null,
       intent: aiResult.intent || "general_chat",
       structured_transaction: structuredTxPayload,
       needs_clarification: needsClarification,
