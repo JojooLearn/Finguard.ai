@@ -1067,12 +1067,12 @@ ATURAN WAJIB KLASIFIKASI INTENT:
    HANYA berlaku jika pengguna secara eksplisit mencatat transaksi nyata, setoran tabungan, atau penarikan Dana Darurat:
    Contoh Pengeluaran: "Makan siang 35.000", "Beli bensin 50rb", "Bayar tagihan listrik 150k".
    Contoh Pemasukan: "Gaji masuk 5 juta", "Ada profit di saham 100rb", "Dapet transferan freelance 1jt", "Cuan reksadana 50rb", "Dividen saham masuk 200rb".
-   Contoh Menambah / Setor Dana Darurat: "Tambahin dana darurat 100k", "Nabung dana darurat 200rb", "Isi uang darurat 500rb", "Setor ke dana darurat 1jt".
+   Contoh Menambah / Memindahkan / Setor Dana Darurat: "Tambahin dana darurat 100k", "Pindahin uang dingin 100k ke dana darurat", "Transfer 100rb ke dana darurat", "Geser/sisihkan 200rb ke dana darurat", "Nabung dana darurat 200rb", "Isi uang darurat 500rb".
    Contoh Memakai / Menarik Dana Darurat: "Ban bocor ambil uang darurat 20rb", "Pakai dana darurat 1,5jt buat biaya RS".
    - Ekstrak ke structured_transaction dengan type: "income", "expense", atau "goal_deposit".
    - Untuk profit saham/reksadana/crypto/dividen: set type = "income", category_suggestion = "Investasi & Dividen", funding_source = "regular".
    - Untuk freelance/usaha/jualan: set type = "income", category_suggestion = "Penjualan & Usaha", funding_source = "regular".
-   - KHUSUS MENAMBAH / SETOR DANA DARURAT ("tambah/tambahin/isi/setor/nabung dana darurat atau uang darurat"):
+   - KHUSUS MENAMBAH / MEMINDAHKAN / SETOR KE DANA DARURAT ("tambah/tambahin/isi/masukin/setor/nabung/pindah/pindahin/pindahkan/transfer/geser/sisihin/sisihkan/alokasi ke dana darurat atau uang darurat"):
      * JANGAN PERNAH mengklasifikasikannya sebagai type = "income" (Pemasukan)! Ini adalah alokasi setor ke celengan Dana Darurat.
      * Set type = "goal_deposit", funding_source = "emergency_fund_deposit", category_suggestion = "Dana Darurat".
      * Sebutkan saldo Dana Darurat nyata saat ini (Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}) dan jelaskan bahwa draf setoran sudah disiapkan — JANGAN katakan saldo sudah bertambah sebelum user menekan Simpan!
@@ -1170,7 +1170,7 @@ ATURAN INTENT:
 1. Pertanyaan saldo/pengeluaran/budget/celengan/utang/estimasi bertahan -> jawab presisi HANYA dari data database di atas (Dana Darurat nyata = Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}; DILARANG menjumlahkan draf chat yang belum dikonfirmasi!), structured_transaction = null, needs_clarification = false.
 2. Konsultasi pembelian -> hitung rasio terhadap uang dingin (<=50% AMAN DIBELI meski tetap gaya karakter user; 50-100% PERTIMBANGKAN/JEDA 48 JAM; >100% DEFISIT/TUNDA). JANGAN bohong bilang tidak cukup jika <=50% uang dingin! structured_transaction = null, needs_clarification = false.
 3. Perintah mencatat transaksi/tabungan nyata:
-   - Tambah/setor/nabung Dana Darurat ("tambahin dana darurat 100k") -> WAJIB set type = "goal_deposit", funding_source = "emergency_fund_deposit", category_suggestion = "Dana Darurat" (JANGAN jadikan "income"!).
+   - Tambah/setor/nabung/pindahkan/transfer/geser/sisihkan ke Dana Darurat ("tambahin dana darurat 100k", "pindahin uang dingin 100k ke dana darurat") -> WAJIB set type = "goal_deposit", funding_source = "emergency_fund_deposit", category_suggestion = "Dana Darurat" (JANGAN jadikan "income" atau "expense"!).
    - Pakai/ambil Dana Darurat ("ambil dana darurat 20rb buat tambal ban") & saldo cukup -> set type = "expense", funding_source = "emergency_fund", category_suggestion = "Dana Darurat", fallback_category_suggestion = kategori relevan ("Transportasi", dll). Beri saran bijak sesuai persona bila biaya kecil, lalu arahkan klik Simpan di kartu bawah!
    - Transaksi/pemasukan biasa -> isi structured_transaction dengan funding_source = "regular". Jangan bilang "sudah tersimpan".
 4. Sapaan / chat bebas / makian -> BALAS SEPENUHNYA SESUAI ATURAN KEPRIBADIAN LEVEL ${strictness}/5 DI ATAS (JANGAN melunak jika Level >= 4!), intent = "general_chat", structured_transaction = null.
@@ -1284,8 +1284,19 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
     if (hasTransaction && !needsClarification) {
       const stx = aiResult.structured_transaction;
       const lowerMsg = message.toLowerCase();
+      const depositDirectVerb =
+        "(?:tambah|tambahin|tambahkan|menambah|menambahkan|isi|mengisi|masukin|masukkan|memasukkan|setor|setorin|menyetor|menyetorkan|nabung|tabung|menabung|top\\s*up|alokasi|alokasikan|mengalokasikan|sisih|sisihin|sisihkan|menyisihkan)";
+      const depositMoveVerb =
+        "(?:pindah|pindahin|pindahkan|memindah|memindahkan|transfer|mentransfer|geser|menggeser)";
+      const emergencyTargetNoun =
+        "(?:tabungan\\s+|celengan\\s+|pos\\s+)?(?:uang|dana)\\s+darurat";
       const userExplicitEmergencyDeposit =
-        /(?:tambah|tambahin|tambahkan|isi|masukin|masukkan|setor|setorin|nabung|tabung|top\s*up|alokasi(?:kan)?)\s+(?:saldo\s+)?(?:ke\s+|untuk\s+|di\s+)?(?:uang|dana)\s+darurat|(?:uang|dana)\s+darurat(?:\s+\w+){0,3}\s+(?:tambah|tambahin|tambahkan|isi|setor|nabung)|(?:tambahin|tambah|isi|setor)\s+(?:uang|dana)\s+darurat/i.test(lowerMsg) ||
+        new RegExp(
+          `(?:${depositDirectVerb})(?:\\s+[\\w.,Rp+-]+){0,10}\\s+(?:ke\\s+|untuk\\s+|buat\\s+|di\\s+|masuk\\s+(?:ke\\s+)?)?${emergencyTargetNoun}` +
+            `|(?:${depositMoveVerb})(?:\\s+[\\w.,Rp+-]+){0,10}\\s+(?:ke|untuk|buat|masuk(?:\\s+ke)?)\\s+${emergencyTargetNoun}` +
+            `|${emergencyTargetNoun}(?:\\s+[\\w.,Rp+-]+){0,5}\\s+(?:${depositDirectVerb}|ditambah|disetor|diisi)`,
+          "i",
+        ).test(lowerMsg) ||
         stx.funding_source === "emergency_fund_deposit" ||
         stx.type === "goal_deposit" ||
         (stx.type === "income" && String(stx.category_suggestion || "").toLowerCase().includes("dana darurat"));

@@ -1106,14 +1106,32 @@ class CoachRepositoryImpl implements CoachRepository {
         extractedAmount != null &&
         extractedAmount > 0;
 
+    const depositDirectVerb =
+        r'(?:tambah|tambahin|tambahkan|menambah|menambahkan|isi|mengisi|masukin|masukkan|memasukkan|setor|setorin|menyetor|menyetorkan|nabung|tabung|menabung|top\s*up|alokasi|alokasikan|mengalokasikan|sisih|sisihin|sisihkan|menyisihkan)';
+    const depositMoveVerb =
+        r'(?:pindah|pindahin|pindahkan|memindah|memindahkan|transfer|mentransfer|geser|menggeser)';
+    const emergencyTargetNoun =
+        r'(?:tabungan\s+|celengan\s+|pos\s+)?(?:uang|dana)\s+darurat';
+    final isEmergencyDepositPhrase = RegExp(
+      '(?:$depositDirectVerb)(?:\\s+[\\w.,Rp+-]+){0,10}\\s+(?:ke\\s+|untuk\\s+|buat\\s+|di\\s+|masuk\\s+(?:ke\\s+)?)?$emergencyTargetNoun'
+      '|(?:$depositMoveVerb)(?:\\s+[\\w.,Rp+-]+){0,10}\\s+(?:ke|untuk|buat|masuk(?:\\s+ke)?)\\s+$emergencyTargetNoun'
+      '|$emergencyTargetNoun(?:\\s+[\\w.,Rp+-]+){0,5}\\s+(?:$depositDirectVerb|ditambah|disetor|diisi)',
+      caseSensitive: false,
+    ).hasMatch(lower);
+    final hasValidAmount = extractedAmount != null && extractedAmount > 0;
+    final isEmergencyDepositCommand =
+        isEmergencyDepositPhrase &&
+        hasValidAmount &&
+        !lower.contains('?') &&
+        !RegExp(
+          r'\b(?:apakah|berapa|bagaimana|gimana|kenapa|bisa gak|bisa ga|boleh gak|boleh ga)\b',
+        ).hasMatch(lower);
+
     // 5. Intent Classifications
     final isQuestion =
         lower.contains('?') ||
-        lower.contains('apa') ||
-        lower.contains('apakah') ||
-        lower.contains('berapa') ||
-        lower.contains('bagaimana') ||
-        lower.contains('gimana') ||
+        RegExp(r'\b(?:apa|apakah|berapa|bagaimana|gimana|kenapa)\b')
+            .hasMatch(lower) ||
         lower.contains('bisa gak') ||
         lower.contains('bisa ga') ||
         lower.contains('boleh gak') ||
@@ -1127,6 +1145,7 @@ class CoachRepositoryImpl implements CoachRepository {
 
     final isPurchaseConsultation =
         !isExplicitPastTransaction &&
+        !isEmergencyDepositCommand &&
         (isFollowUpPrice ||
             ((lower.contains('beli') ||
                     lower.contains('gadget') ||
@@ -1146,25 +1165,26 @@ class CoachRepositoryImpl implements CoachRepository {
                     lower.contains('konsultasi'))));
 
     final isWealthQuery =
-        lower.contains('dana yang') ||
-        lower.contains('dana saya') ||
-        lower.contains('dana ku') ||
-        lower.contains('dana dimiliki') ||
-        lower.contains('dana ada berapa') ||
-        lower.contains('uang saya') ||
-        lower.contains('uang ku') ||
-        lower.contains('uang ada berapa') ||
-        lower.contains('duit saya') ||
-        lower.contains('duit ku') ||
-        lower.contains('duit ada berapa') ||
-        lower.contains('saldo') ||
-        lower.contains('kekayaan') ||
-        lower.contains('tabungan saya') ||
-        lower.contains('kas saya') ||
-        (lower.contains('berapa') &&
-            (lower.contains('dana') ||
-                lower.contains('uang') ||
-                lower.contains('duit')));
+        !isEmergencyDepositCommand &&
+        (lower.contains('dana yang') ||
+            lower.contains('dana saya') ||
+            lower.contains('dana ku') ||
+            lower.contains('dana dimiliki') ||
+            lower.contains('dana ada berapa') ||
+            lower.contains('uang saya') ||
+            lower.contains('uang ku') ||
+            lower.contains('uang ada berapa') ||
+            lower.contains('duit saya') ||
+            lower.contains('duit ku') ||
+            lower.contains('duit ada berapa') ||
+            lower.contains('saldo') ||
+            lower.contains('kekayaan') ||
+            lower.contains('tabungan saya') ||
+            lower.contains('kas saya') ||
+            (lower.contains('berapa') &&
+                (lower.contains('dana') ||
+                    lower.contains('uang') ||
+                    lower.contains('duit'))));
 
     // --- Intent 0: Greetings & Casual Chit-Chat (Offline Fallback) ---
     final isGreeting =
@@ -1609,11 +1629,8 @@ class CoachRepositoryImpl implements CoachRepository {
     // --- Intent F: Transaction Recording (Evaluated BEFORE temporal inquiries so "makan bakso 10k tadi" or "Catat: Nasi padang 25rb" are not misidentified as questions) ---
     if (extractedAmount != null &&
         extractedAmount > 0 &&
-        !isQuestion &&
-        !isPurchaseConsultation) {
-      final wantsEmergencyDeposit = RegExp(
-        r'(?:tambah|tambahin|tambahkan|isi|masukin|masukkan|setor|setorin|nabung|tabung|top\s*up|alokasi(?:kan)?)\s+(?:saldo\s+)?(?:ke\s+|untuk\s+|di\s+)?(?:uang|dana)\s+darurat|(?:uang|dana)\s+darurat(?:\s+\w+){0,3}\s+(?:tambah|tambahin|tambahkan|isi|setor|nabung)',
-      ).hasMatch(lower);
+        (isEmergencyDepositCommand || (!isQuestion && !isPurchaseConsultation))) {
+      final wantsEmergencyDeposit = isEmergencyDepositPhrase;
 
       final isIncome =
           !wantsEmergencyDeposit &&
