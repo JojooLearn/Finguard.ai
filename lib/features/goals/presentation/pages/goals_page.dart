@@ -163,6 +163,7 @@ class _GoalsPageState extends State<GoalsPage> {
                       prefixText: 'Rp ',
                       prefixStyle: AppTypography.bigNumber.copyWith(
                         fontSize: 22,
+                        color: AppColors.primary,
                       ),
                       hintText: '0',
                       hintStyle: AppTypography.bigNumber.copyWith(
@@ -498,23 +499,35 @@ class _GoalsPageState extends State<GoalsPage> {
               const SizedBox(height: 4),
               Text(title, style: AppTypography.caption),
               const SizedBox(height: 16),
+              Text(
+                'Nominal Setoran',
+                style: AppTypography.sectionLabel.copyWith(fontSize: 13),
+              ),
+              const SizedBox(height: 6),
               TextField(
                 controller: amountCtrl,
                 keyboardType: TextInputType.number,
                 inputFormatters: [CurrencyInputFormatter()],
-                style: AppTypography.bigNumber.copyWith(fontSize: 28),
+                style: AppTypography.bigNumber.copyWith(fontSize: 24),
                 decoration: InputDecoration(
                   prefixText: 'Rp ',
-                  prefixStyle: AppTypography.bigNumber.copyWith(fontSize: 24),
-                  hintText: '500.000',
+                  prefixStyle: AppTypography.bigNumber.copyWith(
+                    fontSize: 22,
+                    color: AppColors.primary,
+                  ),
+                  hintText: '0',
+                  hintStyle: AppTypography.bigNumber.copyWith(
+                    fontSize: 22,
+                    color: AppColors.textPlaceholder,
+                  ),
                   filled: true,
                   fillColor: AppColors.surfaceFieldFill,
                   contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 18,
+                    horizontal: 16,
                     vertical: 14,
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(16),
                     borderSide: BorderSide.none,
                   ),
                 ),
@@ -547,13 +560,8 @@ class _GoalsPageState extends State<GoalsPage> {
               AppButton(
                 label: 'Simpan',
                 onPressed: () {
-                  final amount = double.tryParse(
-                    amountCtrl.text
-                        .replaceAll('.', '')
-                        .replaceAll(',', '')
-                        .trim(),
-                  );
-                  if (amount == null || amount <= 0) {
+                  final amount = CurrencyInputFormatter.parse(amountCtrl.text);
+                  if (amount <= 0) {
                     ScaffoldMessenger.of(ctx).showSnackBar(
                       SnackBar(
                         content: const Text(

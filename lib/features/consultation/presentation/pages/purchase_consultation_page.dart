@@ -379,10 +379,10 @@ class _PurchaseConsultationPageState extends State<PurchaseConsultationPage> {
             const SizedBox(height: 12),
           ],
 
-          // AI Explanation
-          Text(
+          // AI Explanation (render inline bold/italic cleanly without raw asterisks)
+          _buildFormattedExplanation(
             result.explanation,
-            style: AppTypography.body.copyWith(height: 1.5),
+            AppTypography.body.copyWith(height: 1.5),
           ),
 
           // Budget Warning Alert (if any)
@@ -551,6 +551,51 @@ class _PurchaseConsultationPageState extends State<PurchaseConsultationPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildFormattedExplanation(String rawText, TextStyle baseStyle) {
+    final normalized = rawText.replaceAll('\r\n', '\n').trim();
+    if (!normalized.contains('**') && !normalized.contains('*')) {
+      return Text(normalized, style: baseStyle);
+    }
+
+    final List<TextSpan> spans = [];
+    final pattern = RegExp(r'\*\*(.+?)\*\*|\*(.+?)\*');
+    int lastEnd = 0;
+
+    for (final match in pattern.allMatches(normalized)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: normalized.substring(lastEnd, match.start),
+          style: baseStyle,
+        ));
+      }
+      final boldText = match.group(1);
+      final italicText = match.group(2);
+      if (boldText != null) {
+        spans.add(TextSpan(
+          text: boldText,
+          style: baseStyle.copyWith(fontWeight: FontWeight.w700),
+        ));
+      } else if (italicText != null) {
+        spans.add(TextSpan(
+          text: italicText,
+          style: baseStyle.copyWith(fontStyle: FontStyle.italic),
+        ));
+      }
+      lastEnd = match.end;
+    }
+
+    if (lastEnd < normalized.length) {
+      spans.add(TextSpan(
+        text: normalized.substring(lastEnd),
+        style: baseStyle,
+      ));
+    }
+
+    return RichText(
+      text: TextSpan(children: spans),
     );
   }
 }

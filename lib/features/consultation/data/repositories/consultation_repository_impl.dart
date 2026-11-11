@@ -32,9 +32,10 @@ class ConsultationRepositoryImpl implements ConsultationRepository {
         );
 
         if (response.data != null && response.data is Map) {
-          final data = response.data as Map<String, dynamic>;
-          final metrics =
-              (data['deterministic_metrics'] as Map<String, dynamic>?) ?? {};
+          final data = Map<String, dynamic>.from(response.data as Map);
+          final metrics = data['deterministic_metrics'] is Map
+              ? Map<String, dynamic>.from(data['deterministic_metrics'] as Map)
+              : <String, dynamic>{};
 
           // Enforce Golden Financial Rule on freeCash & verdict
           final serverFreeCash = (metrics['freeCash'] as num?)?.toDouble() ?? 0.0;
@@ -43,9 +44,10 @@ class ConsultationRepositoryImpl implements ConsultationRepository {
               : serverFreeCash;
           final effectiveRemainingCash = effectiveFreeCash - estimatedPrice;
 
-          ConsultationVerdict effectiveVerdict = ConsultationVerdict.fromString(
+          final serverVerdict = ConsultationVerdict.fromString(
             data['verdict']?.toString(),
           );
+          ConsultationVerdict effectiveVerdict = serverVerdict;
           if (localMetrics.hasData) {
             if (estimatedPrice > effectiveFreeCash || effectiveRemainingCash < 0) {
               effectiveVerdict = ConsultationVerdict.notRecommended;
@@ -56,13 +58,30 @@ class ConsultationRepositoryImpl implements ConsultationRepository {
             }
           }
 
+          String explanation =
+              data['explanation']?.toString() ?? 'Tidak ada penjelasan.';
+          // Prevent any badge/text mismatch if client Golden Rule verdict overrode server verdict
+          if (localMetrics.hasData &&
+              serverVerdict != ConsultationVerdict.insufficientData &&
+              effectiveVerdict != serverVerdict) {
+            final alignedLocal = await _generateLocalDeterministicAnalysis(
+              itemName: itemName,
+              estimatedPrice: estimatedPrice,
+              categoryName: categoryName,
+              metrics: localMetrics,
+            );
+            alignedLocal.fold(
+              (localEntity) => explanation = localEntity.explanation,
+              (_) {},
+            );
+          }
+
           final entity = ConsultationResultEntity(
             itemName: data['item_name']?.toString() ?? itemName,
             estimatedPrice:
                 (data['estimated_price'] as num?)?.toDouble() ?? estimatedPrice,
             verdict: effectiveVerdict,
-            explanation:
-                data['explanation']?.toString() ?? 'Tidak ada penjelasan.',
+            explanation: explanation,
             opportunityCost: data['opportunity_cost']?.toString(),
             budgetWarning: data['budget_warning']?.toString(),
             freeCash: effectiveFreeCash,
@@ -109,7 +128,7 @@ class ConsultationRepositoryImpl implements ConsultationRepository {
             '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
         final lastDay = DateTime(now.year, now.month + 1, 0).day;
         final monthEnd =
-            '${now.year}-${now.month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
+            '${now.year}-${now.month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}T23:59:59.999';
 
         final results = await Future.wait<dynamic>([
           client
