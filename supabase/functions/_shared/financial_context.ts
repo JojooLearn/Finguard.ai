@@ -151,6 +151,15 @@ export interface UserFinancialContext {
   dailyAverageExpense: number;
 }
 
+function isNeedsCategory(allocationType: string, categoryName: string): boolean {
+  const alloc = allocationType.trim().toLowerCase();
+  if (alloc === "needs") return true;
+  if (alloc === "wants" || alloc === "savings" || alloc === "savings_debt") return false;
+  return /makan|minum|food|transport|bensin|ojol|tagihan|utilitas|listrik|air|sewa|kos|kesehatan|sehat|pokok/i.test(
+    categoryName,
+  );
+}
+
 export async function getUserFinancialContext(supabaseClient: any, userId: string, clientDate?: string): Promise<UserFinancialContext> {
   let todayStr: string;
   let yesterdayStr: string;
@@ -228,7 +237,7 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
       .select("*, financial_goals(name)")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(20),
+      .limit(50),
     // 7. Monthly reviews (evaluations, achievements, challenges)
     supabaseClient
       .from("monthly_reviews")
@@ -243,7 +252,7 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
       .select("*, accounts(name), categories(*)")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(100),
+      .limit(200),
     // 9. Stock signals (technical alerts, watchlist, RSI, MA, confidence)
     supabaseClient
       .from("stock_signals")
@@ -302,8 +311,9 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
   let savingsDebtExpenseThisMonth = 0;
 
   for (const t of transactionsRes.data || []) {
-    // Check soft delete if column exists
+    // Check soft delete & skip pending/unconfirmed drafts
     if (t.deleted_at != null) continue;
+    if (t.status != null && t.status !== "confirmed") continue;
 
     const amt = Number(t.amount || 0);
     const dateStr = t.date ? String(t.date).split("T")[0] : (t.transaction_date ? String(t.transaction_date).split("T")[0] : (t.created_at ? String(t.created_at).split("T")[0] : ""));
@@ -402,22 +412,29 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
   }
   if (actualLiquidCash < 0) actualLiquidCash = 0;
 
-  const budgets = (budgetsRes.data || []).map((b: any) => {
-    const limit = Number(b.amount ?? b.limit_amount ?? 0);
-    const spent = categorySpentMap[b.category_id] || 0;
-    const catName = b.categories?.name || "Kategori";
-    const allocType = b.categories?.budget_group || b.categories?.allocation_type || "other";
-    return {
-      category: catName,
-      categoryId: b.category_id,
-      allocationType: allocType,
-      limit,
-      spent,
-      todaySpent: categoryTodaySpentMap[b.category_id] || 0,
-      yesterdaySpent: categoryYesterdaySpentMap[b.category_id] || 0,
-      remaining: Math.max(0, limit - spent),
-    };
-  });
+  const budgets = (budgetsRes.data || [])
+    .filter((b: any) => {
+      if (!b.period_start || !b.period_end) return true;
+      const start = String(b.period_start).split("T")[0];
+      const end = String(b.period_end).split("T")[0];
+      return start <= currentMonthEnd && end >= currentMonthStart;
+    })
+    .map((b: any) => {
+      const limit = Number(b.amount ?? b.limit_amount ?? 0);
+      const spent = categorySpentMap[b.category_id] || 0;
+      const catName = b.categories?.name || "Kategori";
+      const allocType = b.categories?.budget_group || b.categories?.allocation_type || "other";
+      return {
+        category: catName,
+        categoryId: b.category_id,
+        allocationType: allocType,
+        limit,
+        spent,
+        todaySpent: categoryTodaySpentMap[b.category_id] || 0,
+        yesterdaySpent: categoryYesterdaySpentMap[b.category_id] || 0,
+        remaining: Math.max(0, limit - spent),
+      };
+    });
 
   const goals: GoalItem[] = [];
   const debts: DebtContextItem[] = [];
@@ -557,12 +574,46 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
   const dailyAverageExpense = monthlyTotalExpense / elapsedDays;
   const monthlyNetCashFlow = monthlyTotalIncome - monthlyTotalExpense;
 
-  const effectiveIncome = Math.max(monthlyIncome, monthlyTotalIncome);
+  // Prioritaskan pemasukan transaksi aktual bulan ini; fallback ke profil jika belum ada transaksi masuk.
+  const effectiveIncome = monthlyTotalIncome > 0 ? monthlyTotalIncome : monthlyIncome;
   const effectiveHasVerifiedIncome = hasVerifiedIncome || effectiveIncome > 0;
-  const effectiveConsumptionExpense =
-    monthlyTotalExpense > 0
-      ? monthlyTotalExpense
+
+  // Pisahkan pembayaran cicilan dari kebutuhan pokok & keinginan agar tidak terhitung ganda
+  // maupun tertelan oleh cadangan jatah kebutuhan pokok bulanan.
+  const debtNamesLower = debts.map((d) => d.name.toLowerCase()).filter(Boolean);
+  let paidDebtTxExpense = 0;
+  let nonDebtNeedsExpense = 0;
+  let nonDebtOtherExpense = 0;
+
+  for (const tx of recentTransactions) {
+    if (tx.type !== "expense" || tx.date < currentMonthStart || tx.date > currentMonthEnd) {
+      continue;
+    }
+    const noteLower = tx.note.toLowerCase();
+    const isPaidDebtTx = debtNamesLower.some((dName) => noteLower.includes(`bayar ${dName}`));
+    if (isPaidDebtTx) {
+      paidDebtTxExpense += tx.amount;
+    } else if (isNeedsCategory(tx.allocationType, tx.category)) {
+      nonDebtNeedsExpense += tx.amount;
+    } else {
+      nonDebtOtherExpense += tx.amount;
+    }
+  }
+
+  const activeNeedsBudgetTotal = budgets
+    .filter((b) => isNeedsCategory(b.allocationType, b.category))
+    .reduce((acc, b) => acc + b.limit, 0);
+  const monthlyEssentialCommitment =
+    activeNeedsBudgetTotal > 0
+      ? activeNeedsBudgetTotal
       : Number(fp.essential_monthly_expenses || 0);
+
+  // Cadangkan jatah kebutuhan pokok bulanan penuh agar uang makan/transport/tagihan
+  // yang belum terpakai di awal/tengah bulan tidak terbaca sebagai uang dingin.
+  const effectiveConsumptionExpense =
+    paidDebtTxExpense +
+    Math.max(nonDebtNeedsExpense, monthlyEssentialCommitment) +
+    nonDebtOtherExpense;
 
   // Calculate unpaid monthly debt for this month (prevent double counting if already paid via transaction)
   const currentMonthNotes = recentTransactions
@@ -579,23 +630,26 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
       }
     }
   } else {
-    unpaidMonthlyDebt = Number(fp.monthly_debt_payments || 0);
+    unpaidMonthlyDebt = debts.length > 0 ? 0 : Number(fp.monthly_debt_payments || 0);
   }
 
-  // Calculate monthly savings/emergency fund contributions locked this month
+  // Hitung setoran neto tabungan & dana darurat KHUSUS bulan berjalan (tidak memakai total saldo historis bulan lalu).
   const currentMonthContribTotal = goalContributions
     .filter((gc) => gc.date >= currentMonthStart && gc.date <= currentMonthEnd)
     .reduce((acc, gc) => acc + gc.amount, 0);
-  const totalGoalCurrent = goals.reduce((acc, g) => acc + g.current, 0);
-  const monthlySavingsContributions =
-    currentMonthContribTotal > 0 ? currentMonthContribTotal : totalGoalCurrent;
+  const monthlySavingsContributions = Math.max(0, currentMonthContribTotal);
 
   // Golden Financial Rule:
-  // Uang Dingin Siap Pakai = Total Pemasukan - Total Pengeluaran Konsumsi - Kewajiban Cicilan Belum Dibayar Bulan Ini - Total Setoran Tabungan/Dana Darurat Bulan Ini
-  const availableFreeCash = Math.max(
+  // Uang Dingin Siap Pakai = Pemasukan Aktual - Komitmen Kebutuhan Pokok & Konsumsi - Cicilan Belum Dibayar - Setoran Tabungan/Dana Darurat Bulan Ini
+  const rawFreeCash = Math.max(
     0,
     effectiveIncome - effectiveConsumptionExpense - unpaidMonthlyDebt - monthlySavingsContributions,
   );
+  const hasRealCashTracking =
+    monthlyTotalIncome > 0 || monthlyTotalExpense > 0 || totalOpeningBalance > 0;
+  const availableFreeCash = hasRealCashTracking
+    ? Math.min(rawFreeCash, actualLiquidCash)
+    : rawFreeCash;
 
   return {
     displayName: profileRes.data?.display_name || "Sobat FinGuard",

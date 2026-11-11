@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -859,7 +860,7 @@ class CoachRepositoryImpl implements CoachRepository {
             )
             .eq('user_id', currentUser.id)
             .order('contribution_date', ascending: false)
-            .limit(10);
+            .limit(50);
         final gcRows = gcRes as List<dynamic>;
         contributions = gcRows
             .map((e) => Map<String, dynamic>.from(e as Map))
@@ -906,7 +907,17 @@ class CoachRepositoryImpl implements CoachRepository {
           textToCheck.contains('cafe');
     }
 
+    final debtNamesLower = debts
+        .map((d) => d.name.toLowerCase())
+        .where((n) => n.isNotEmpty)
+        .toList();
+    double paidDebtTxExpense = 0.0;
+    double nonDebtNeedsExpense = 0.0;
+    double nonDebtOtherExpense = 0.0;
+
     for (final tx in transactions) {
+      if (tx.status != TransactionStatus.confirmed) continue;
+
       final isCurrentMonth =
           tx.transactionDate.year == now.year &&
           tx.transactionDate.month == now.month;
@@ -919,6 +930,21 @@ class CoachRepositoryImpl implements CoachRepository {
           final cat = tx.category?.name ?? 'Umum';
           categoryExpenseMap[cat] =
               (categoryExpenseMap[cat] ?? 0.0) + tx.amount;
+
+          final noteLower = (tx.note ?? '').toLowerCase();
+          final isPaidDebt = debtNamesLower.any(
+            (dName) => noteLower.contains('bayar $dName'),
+          );
+          if (isPaidDebt) {
+            paidDebtTxExpense += tx.amount;
+          } else if (FinancialCalculator.isNeedsCategory(
+            allocationType: tx.category?.allocationType?.toDbString(),
+            categoryName: cat,
+          )) {
+            nonDebtNeedsExpense += tx.amount;
+          } else {
+            nonDebtOtherExpense += tx.amount;
+          }
         }
       }
 
@@ -929,10 +955,11 @@ class CoachRepositoryImpl implements CoachRepository {
       }
     }
 
-    final effectiveIncome = totalIncome > 0
-        ? totalIncome
-        : verifiedMonthlyIncome;
-    final netCashFlow = effectiveIncome - totalExpense;
+    final effectiveIncome = FinancialCalculator.resolveEffectiveIncome(
+      recordedMonthlyIncome: totalIncome,
+      profileMonthlyIncome: verifiedMonthlyIncome,
+    );
+    final netCashFlow = totalIncome - totalExpense;
 
     // Total balances across accounts + net transactions (avoids double counting opening balance seeded with monthly income)
     double totalAccountBalance = 0.0;
@@ -942,11 +969,11 @@ class CoachRepositoryImpl implements CoachRepository {
         (sum, a) => sum + a.openingBalance,
       );
     }
-    double actualLiquidCash = totalIncome - totalExpense;
-    if (totalAccountBalance > totalIncome) {
-      actualLiquidCash += (totalAccountBalance - totalIncome);
-    }
-    if (actualLiquidCash < 0) actualLiquidCash = 0;
+    final actualLiquidCash = FinancialCalculator.calculateLiquidCash(
+      recordedMonthlyIncome: totalIncome,
+      recordedMonthlyExpense: totalExpense,
+      totalOpeningBalance: totalAccountBalance,
+    );
 
     // Total accumulated in goals
     final totalGoalsSaved = goals.fold(0.0, (sum, g) => sum + g.currentAmount);
@@ -958,6 +985,7 @@ class CoachRepositoryImpl implements CoachRepository {
     final paidDebtNotes = transactions
         .where(
           (tx) =>
+              tx.status == TransactionStatus.confirmed &&
               tx.transactionType == TransactionType.expense &&
               tx.transactionDate.year == now.year &&
               tx.transactionDate.month == now.month &&
@@ -977,20 +1005,54 @@ class CoachRepositoryImpl implements CoachRepository {
           unpaidMonthlyDebt += d.monthlyPayment;
         }
       }
-    } else {
+    } else if (debts.isEmpty) {
       unpaidMonthlyDebt = monthlyDebt;
     }
 
-    // Golden Financial Rule:
-    // Uang Dingin Siap Pakai = Total Pemasukan - Total Pengeluaran Konsumsi - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Tabungan/Dana Darurat Bulan Ini
-    final effectiveConsumptionExpense = totalExpense > 0
-        ? totalExpense
+    final activeNeedsBudgetTotal = budgets
+        .where(
+          (b) =>
+              b.periodStart.year == now.year &&
+              b.periodStart.month == now.month &&
+              FinancialCalculator.isNeedsCategory(categoryName: b.categoryName),
+        )
+        .fold(0.0, (sum, b) => sum + b.limitAmount);
+    final monthlyEssentialCommitment = activeNeedsBudgetTotal > 0
+        ? activeNeedsBudgetTotal
         : essentialExpenses;
+
+    final monthStartStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
+    final lastDay = DateTime(now.year, now.month + 1, 0).day;
+    final monthEndStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
+    double currentMonthContribSum = 0.0;
+    for (final c in contributions) {
+      final dateStr = c['contribution_date']?.toString().split('T').first ?? '';
+      if (dateStr.compareTo(monthStartStr) >= 0 &&
+          dateStr.compareTo(monthEndStr) <= 0) {
+        currentMonthContribSum += (c['amount'] as num?)?.toDouble() ?? 0.0;
+      }
+    }
+    final monthlySavingsContributions = math.max(0.0, currentMonthContribSum);
+
+    // Golden Financial Rule:
+    // Uang Dingin Siap Pakai = Pemasukan Efektif - Komitmen Kebutuhan Pokok & Konsumsi - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Tabungan/Dana Darurat Bulan Ini
+    final effectiveConsumptionExpense =
+        FinancialCalculator.resolveEffectiveConsumptionExpense(
+      monthlyEssentialCommitment: monthlyEssentialCommitment,
+      nonDebtNeedsExpense: nonDebtNeedsExpense,
+      nonDebtOtherExpense: nonDebtOtherExpense,
+      paidDebtExpense: paidDebtTxExpense,
+    );
+    final hasRealCashTracking =
+        totalIncome > 0 || totalExpense > 0 || totalAccountBalance > 0;
     final freeCash = FinancialCalculator.calculateAvailableFreeCash(
       totalIncome: effectiveIncome,
       totalConsumptionExpense: effectiveConsumptionExpense,
       unpaidMonthlyDebt: unpaidMonthlyDebt,
-      monthlySavingsContribution: totalGoalsSaved,
+      monthlySavingsContribution: monthlySavingsContributions,
+      maxCashCap: hasRealCashTracking ? actualLiquidCash : null,
     );
 
     // 3. Amount Extraction with support for Indonesian vernacular (e.g. 150 juta, 3 jt, 50rb, 35k, 35.000)
@@ -1383,6 +1445,9 @@ class CoachRepositoryImpl implements CoachRepository {
       }
 
       buffer.writeln('• Sisa Uang Bersih Bulan Ini: ${_formatRp(netCashFlow)}');
+      buffer.writeln(
+        '• Uang Dingin Siap Pakai Bulan Ini: ${_formatRp(freeCash)}',
+      );
       buffer.writeln(
         '\nTotal Duit & Tabungan: ${_formatRp(actualLiquidCash + totalGoalsSaved)}.',
       );

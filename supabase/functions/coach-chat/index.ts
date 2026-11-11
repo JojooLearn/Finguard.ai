@@ -928,10 +928,10 @@ DATABASE KEUANGAN LENGKAP PENGGUNA (TERHUBUNG KE SEMUA TABEL):
 - Fokus Tujuan Utama: ${finContext.primaryGoalSummary || "Belum ditentukan"}
 - Dana Darurat Awal: Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}
 - Pemasukan Bulanan: Rp${finContext.monthlyIncome.toLocaleString("id-ID")}
-- Kebutuhan Pokok & Konsumsi Bulanan: Rp${finContext.essentialExpenses.toLocaleString("id-ID")}
+- Kebutuhan Pokok & Konsumsi Bulan Ini (Sudah Terpakai + Cadangan Jatah Kebutuhan): Rp${finContext.essentialExpenses.toLocaleString("id-ID")}
 - Komitmen Cicilan Utang Bulanan Belum Dibayar: Rp${finContext.monthlyDebt.toLocaleString("id-ID")}
 - Setoran Tabungan & Dana Darurat Bulan Ini: Rp${finContext.monthlySavingsContributions.toLocaleString("id-ID")}
-- Uang Dingin Siap Pakai Bulan Ini (Pemasukan - Konsumsi - Cicilan - Setoran Tabungan): Rp${freeCash.toLocaleString("id-ID")}
+- Uang Dingin Siap Pakai Bulan Ini (Pemasukan - Kebutuhan Pokok - Cicilan - Setoran Tabungan/Dana Darurat, max Kas Cair): Rp${freeCash.toLocaleString("id-ID")}
 - Total Saldo Kas Cair Tersedia: Rp${finContext.availableCash.toLocaleString("id-ID")}
 
 2. DAFTAR REKENING & DOMPET (accounts):

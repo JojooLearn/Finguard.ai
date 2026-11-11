@@ -212,10 +212,12 @@ serve(async (req) => {
 Barang: ${item_name}
 Harga: Rp${priceNum.toLocaleString("id-ID")}
 Kategori: ${category_name || "Umum"}
-Pemasukan Bulanan: Rp${finContext.monthlyIncome.toLocaleString("id-ID")}
-Kebutuhan Pokok / Pengeluaran Berjalan: Rp${finContext.essentialExpenses.toLocaleString("id-ID")}
+Pemasukan Bulanan Efektif: Rp${finContext.monthlyIncome.toLocaleString("id-ID")}
+Komitmen Kebutuhan Pokok & Konsumsi Bulan Ini: Rp${finContext.essentialExpenses.toLocaleString("id-ID")}
 Cicilan Utang Belum Terbayar: Rp${finContext.monthlyDebt.toLocaleString("id-ID")}
-Uang Dingin Bulan Ini: Rp${freeCash.toLocaleString("id-ID")}
+Setoran Tabungan & Dana Darurat Bulan Ini: Rp${finContext.monthlySavingsContributions.toLocaleString("id-ID")}
+Total Saldo Kas Cair Tersedia: Rp${finContext.availableCash.toLocaleString("id-ID")}
+Uang Dingin Siap Pakai Bulan Ini: Rp${freeCash.toLocaleString("id-ID")}
 Porsi Harga vs Uang Dingin: ${ratioPct}%
 Proyeksi Sisa Uang Dingin Setelah Beli: Rp${remainingCash.toLocaleString("id-ID")}
 Dampak ke Tabungan: ${opportunityCost || "Belum ada target tabungan"}

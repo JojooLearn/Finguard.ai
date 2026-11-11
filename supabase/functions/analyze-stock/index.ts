@@ -104,7 +104,7 @@ serve(async (req) => {
     const price = onDemandResult.price > 0 ? onDemandResult.price : (cleanTicker === "ANDA" ? 158 : 100);
     const lotPrice = price * 100;
     const freeCash = finContext.availableFreeCash;
-    const userEffectiveCash = Math.max(0, finContext.availableFreeCash);
+    const userEffectiveCash = Math.max(0, finContext.availableCash);
     const affordableLotsFreeCash = freeCash > 0 ? Math.floor(freeCash / lotPrice) : 0;
     const affordableLotsLiquid = userEffectiveCash > 0 ? Math.floor(userEffectiveCash / lotPrice) : 0;
 

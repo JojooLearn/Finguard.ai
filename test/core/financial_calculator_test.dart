@@ -79,5 +79,80 @@ void main() {
 
       expect(FinancialCalculator.calculateDebtRatio(monthlyDebtPayments: 500, monthlyIncome: 0), isNull);
     });
+
+    test('resolveEffectiveIncome prioritizes recorded income over stale higher profile income', () {
+      expect(
+        FinancialCalculator.resolveEffectiveIncome(
+          recordedMonthlyIncome: 3600000,
+          profileMonthlyIncome: 4500000,
+        ),
+        3600000,
+      );
+      expect(
+        FinancialCalculator.resolveEffectiveIncome(
+          recordedMonthlyIncome: 0,
+          profileMonthlyIncome: 4500000,
+        ),
+        4500000,
+      );
+    });
+
+    test('Golden Financial Rule locks monthly needs commitment and keeps Uang Dingin <= Kas Cair', () {
+      // Skenario 10jt: Kebutuhan Pokok 4.5jt, Cicilan 2jt, Tabungan & Darurat 2jt -> Uang Dingin 1.5jt
+      final income = FinancialCalculator.resolveEffectiveIncome(
+        recordedMonthlyIncome: 10000000,
+        profileMonthlyIncome: 10000000,
+      );
+
+      // Awal bulan baru keluar makan Rp38.000 (sisa jatah kebutuhan pokok wajib tetap terkunci)
+      final earlyMonthConsumption =
+          FinancialCalculator.resolveEffectiveConsumptionExpense(
+        monthlyEssentialCommitment: 4500000,
+        nonDebtNeedsExpense: 38000,
+      );
+      expect(earlyMonthConsumption, 4500000);
+
+      final earlyLiquidCash = FinancialCalculator.calculateLiquidCash(
+        recordedMonthlyIncome: 10000000,
+        recordedMonthlyExpense: 38000,
+        totalOpeningBalance: 0,
+      );
+
+      final earlyFreeCash = FinancialCalculator.calculateAvailableFreeCash(
+        totalIncome: income,
+        totalConsumptionExpense: earlyMonthConsumption,
+        unpaidMonthlyDebt: 2000000,
+        monthlySavingsContribution: 2000000,
+        maxCashCap: earlyLiquidCash,
+      );
+      expect(earlyFreeCash, 1500000);
+      expect(earlyFreeCash <= earlyLiquidCash, isTrue);
+
+      // Setelah bayar cicilan 2jt via transaksi & jajan Hiburan (wants) 500rb:
+      final midMonthConsumption =
+          FinancialCalculator.resolveEffectiveConsumptionExpense(
+        monthlyEssentialCommitment: 4500000,
+        nonDebtNeedsExpense: 38000,
+        nonDebtOtherExpense: 500000,
+        paidDebtExpense: 2000000,
+      );
+      expect(midMonthConsumption, 7000000);
+
+      final midLiquidCash = FinancialCalculator.calculateLiquidCash(
+        recordedMonthlyIncome: 10000000,
+        recordedMonthlyExpense: 2538000,
+        totalOpeningBalance: 0,
+      );
+
+      final midFreeCash = FinancialCalculator.calculateAvailableFreeCash(
+        totalIncome: income,
+        totalConsumptionExpense: midMonthConsumption,
+        unpaidMonthlyDebt: 0,
+        monthlySavingsContribution: 2000000,
+        maxCashCap: midLiquidCash,
+      );
+      expect(midFreeCash, 1000000);
+      expect(midFreeCash <= midLiquidCash, isTrue);
+    });
   });
 }

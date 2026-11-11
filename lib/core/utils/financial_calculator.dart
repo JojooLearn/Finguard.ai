@@ -13,8 +13,9 @@ class FinancialCalculator {
   }
 
   /// 10.1b Available Free Cash (Uang Dingin Siap Pakai - Golden Financial Rule)
-  /// Uang Dingin Siap Pakai = Total Pemasukan - Total Pengeluaran Konsumsi
-  ///   - Kewajiban Cicilan Belum Dibayar Bulan Ini - Total Setoran Tabungan/Dana Darurat Bulan Ini
+  /// Uang Dingin Siap Pakai = Pemasukan Efektif - Komitmen Kebutuhan Pokok & Konsumsi
+  ///   - Kewajiban Cicilan Belum Dibayar Bulan Ini - Setoran Tabungan/Dana Darurat Bulan Ini
+  /// Jika [maxCashCap] diberikan (saat kas cair riil tercatat), hasil dibatasi <= maxCashCap.
   static double calculateAvailableFreeCash({
     required double totalIncome,
     required double totalConsumptionExpense,
@@ -22,6 +23,7 @@ class FinancialCalculator {
     double unpaidMonthlyDebtObligation = 0.0,
     double monthlySavingsContribution = 0.0,
     double monthlySavingsContributions = 0.0,
+    double? maxCashCap,
   }) {
     final effectiveDebt = unpaidMonthlyDebt > 0
         ? unpaidMonthlyDebt
@@ -33,7 +35,66 @@ class FinancialCalculator {
         totalConsumptionExpense -
         effectiveDebt -
         effectiveSavings;
-    return math.max(0.0, raw);
+    final freeCash = math.max(0.0, raw);
+    if (maxCashCap != null) {
+      return math.min(freeCash, math.max(0.0, maxCashCap));
+    }
+    return freeCash;
+  }
+
+  /// Klasifikasi pos kebutuhan pokok ('needs') dari allocationType atau nama kategori.
+  static bool isNeedsCategory({
+    String? allocationType,
+    String? categoryName,
+  }) {
+    final alloc = (allocationType ?? '').trim().toLowerCase();
+    if (alloc == 'needs') return true;
+    if (alloc == 'wants' ||
+        alloc == 'savings' ||
+        alloc == 'savings_debt' ||
+        alloc == 'savingsdebt') {
+      return false;
+    }
+    final name = (categoryName ?? '').toLowerCase();
+    return RegExp(
+      r'makan|minum|food|transport|bensin|ojol|tagihan|utilitas|listrik|air|sewa|kos|kesehatan|sehat|pokok',
+    ).hasMatch(name);
+  }
+
+  /// Prioritaskan pemasukan transaksi aktual bulan ini; fallback ke profil jika belum ada transaksi masuk.
+  static double resolveEffectiveIncome({
+    required double recordedMonthlyIncome,
+    required double profileMonthlyIncome,
+  }) {
+    return recordedMonthlyIncome > 0
+        ? recordedMonthlyIncome
+        : profileMonthlyIncome;
+  }
+
+  /// Komitmen konsumsi bulanan: mencadangkan penuh kebutuhan pokok bulanan
+  /// tanpa menghitung ganda pembayaran cicilan yang sudah dicatat sebagai transaksi.
+  static double resolveEffectiveConsumptionExpense({
+    required double monthlyEssentialCommitment,
+    required double nonDebtNeedsExpense,
+    double nonDebtOtherExpense = 0.0,
+    double paidDebtExpense = 0.0,
+  }) {
+    return paidDebtExpense +
+        math.max(nonDebtNeedsExpense, monthlyEssentialCommitment) +
+        nonDebtOtherExpense;
+  }
+
+  /// Saldo kas cair riil saat ini, menghindari hitung ganda opening balance yg diisi gaji awal.
+  static double calculateLiquidCash({
+    required double recordedMonthlyIncome,
+    required double recordedMonthlyExpense,
+    required double totalOpeningBalance,
+  }) {
+    var liquidCash = recordedMonthlyIncome - recordedMonthlyExpense;
+    if (totalOpeningBalance > recordedMonthlyIncome) {
+      liquidCash += (totalOpeningBalance - recordedMonthlyIncome);
+    }
+    return math.max(0.0, liquidCash);
   }
 
   /// 10.2 Budget Usage Percentage
