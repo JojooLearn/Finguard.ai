@@ -1017,11 +1017,21 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
               boxShadow: AppSpacing.softShadow,
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: message.hasVoiceOutput
+                  ? CrossAxisAlignment.stretch
+                  : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 if (message.hasVoiceOutput) ...[
                   _buildMiniAudioPlayer(message),
-                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: AppColors.neutral200.withValues(alpha: 0.65),
+                    ),
+                  ),
                 ],
                 _buildMessageContent(message.content, isUser),
                 const SizedBox(height: 6),
@@ -1055,76 +1065,88 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
     final isCurrentPlaying =
         _activePlayingMessageId == message.id && (_isTtsSpeaking || _isAudioPlaying);
 
-    return GestureDetector(
+    return Material(
       key: Key('mini_audio_player_${message.id}'),
-      onTap: () => _togglePlayMessageAudio(message),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: AppColors.primaryLight.withValues(alpha: 0.45),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.2),
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _togglePlayMessageAudio(message),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight.withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(14),
           ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: const BoxDecoration(
-                gradient: AppColors.aiAccentGradient,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Icon(
-                  isCurrentPlaying
-                      ? PhosphorIcons.pause(PhosphorIconsStyle.fill)
-                      : PhosphorIcons.play(PhosphorIconsStyle.fill),
-                  color: Colors.white,
-                  size: 14,
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  gradient: AppColors.aiAccentGradient,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Icon(
+                    isCurrentPlaying
+                        ? PhosphorIcons.pause(PhosphorIconsStyle.fill)
+                        : PhosphorIcons.play(PhosphorIconsStyle.fill),
+                    color: Colors.white,
+                    size: 14,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    isCurrentPlaying
-                        ? 'Memutar Suara Coach...'
-                        : 'Putar Suara Coach',
-                    style: AppTypography.body.copyWith(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primaryDark,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isCurrentPlaying
+                          ? 'Memutar suara Coach...'
+                          : 'Putar suara Coach',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.body.copyWith(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primaryDark,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    isCurrentPlaying
-                        ? 'Ketuk untuk jeda'
-                        : 'Balasan suara AI (In-Memory)',
-                    style: AppTypography.caption.copyWith(
-                      fontSize: 10.5,
-                      color: AppColors.textSecondary,
+                    const SizedBox(height: 1),
+                    Text(
+                      isCurrentPlaying
+                          ? 'Ketuk untuk jeda'
+                          : 'Ketuk untuk dengarkan balasan',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption.copyWith(
+                        fontSize: 10.5,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Icon(
-              isCurrentPlaying
-                  ? PhosphorIcons.waveform(PhosphorIconsStyle.bold)
-                  : PhosphorIcons.speakerHigh(PhosphorIconsStyle.bold),
-              size: 18,
-              color: AppColors.primary,
-            ),
-          ],
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceCard.withValues(alpha: 0.75),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isCurrentPlaying
+                      ? PhosphorIcons.waveform(PhosphorIconsStyle.bold)
+                      : PhosphorIcons.speakerHigh(PhosphorIconsStyle.bold),
+                  size: 15,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
