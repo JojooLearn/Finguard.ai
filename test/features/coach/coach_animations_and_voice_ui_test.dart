@@ -58,6 +58,13 @@ void main() {
         expect(brokenRaw.contains('Piggy Left Half'), isTrue);
         expect(brokenRaw.contains('Piggy Right Half'), isTrue);
         expect(brokenRaw.contains('Crack Bolt'), isTrue);
+
+        // Guard against Lottie 3.3.3 CanvasKit crash ("Gradient.linear was disposed")
+        // caused by GradientStroke ('ty':'gs') combined with animated zero-scale keyframes.
+        final typingRaw = await File(
+          'assets/animations/ai_coach_typing.json',
+        ).readAsString();
+        expect(typingRaw.contains('"ty":"gs"'), isFalse);
       },
     );
   });
@@ -176,6 +183,12 @@ void main() {
         await tester.pumpWidget(buildCoachPage());
         await tester.pump(const Duration(milliseconds: 200));
 
+        // Pump across full typing animation cycle to verify all keyframes render cleanly
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(milliseconds: 250));
+        }
+
+        expect(tester.takeException(), isNull);
         expect(find.text('Wait, Sabar Boss...'), findsOneWidget);
         expect(
           find.byWidgetPredicate(

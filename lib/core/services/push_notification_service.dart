@@ -32,6 +32,12 @@ class PushNotificationService {
       final prefs = await SharedPreferences.getInstance();
       _pushEnabled = prefs.getBool('push_notifications_enabled') ?? true;
 
+      // OneSignal Flutter plugin & local status bar MethodChannel are native mobile only (Android/iOS).
+      if (kIsWeb) {
+        _initialized = true;
+        return;
+      }
+
       _localChannel.setMethodCallHandler((call) async {
         if (call.method == 'onNotificationTapped') {
           final args = call.arguments as Map?;
@@ -43,11 +49,11 @@ class PushNotificationService {
       });
 
       if (kDebugMode) {
-        OneSignal.Debug.setLogLevel(OSLogLevel.warn);
+        await OneSignal.Debug.setLogLevel(OSLogLevel.warn);
       }
 
       // 1. Initialize OneSignal SDK
-      OneSignal.initialize(AppConfig.oneSignalAppId);
+      await OneSignal.initialize(AppConfig.oneSignalAppId);
 
       // 2. Foreground notification display listener
       OneSignal.Notifications.addForegroundWillDisplayListener((event) {
@@ -73,6 +79,7 @@ class PushNotificationService {
 
   /// Requests system notification permissions on Android 13+ (API 33+) & iOS.
   Future<bool> requestPermission() async {
+    if (kIsWeb) return false;
     bool granted = false;
     try {
       final nativeGranted = await _localChannel.invokeMethod<bool>('requestPermission');
@@ -98,7 +105,7 @@ class PushNotificationService {
     required String body,
     String route = '/notifications',
   }) async {
-    if (!_pushEnabled) return false;
+    if (!_pushEnabled || kIsWeb) return false;
     try {
       final intId = id.hashCode.abs() % 1000000;
       final shown = await _localChannel.invokeMethod<bool>('showNotification', {
@@ -118,6 +125,7 @@ class PushNotificationService {
   Future<void> login(String userId) async {
     if (userId.isEmpty) return;
     _currentUserId = userId;
+    if (kIsWeb) return;
     try {
       await OneSignal.login(userId);
       debugPrint('[OneSignal] User logged in with External ID: $userId');
@@ -129,6 +137,7 @@ class PushNotificationService {
   /// Unbinds device on user logout to prevent notification cross-contamination.
   Future<void> logout() async {
     _currentUserId = null;
+    if (kIsWeb) return;
     try {
       await OneSignal.logout();
       debugPrint('[OneSignal] User logged out from OneSignal.');
@@ -143,6 +152,7 @@ class PushNotificationService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('push_notifications_enabled', enabled);
+      if (kIsWeb) return;
       if (enabled) {
         await OneSignal.User.pushSubscription.optIn();
       } else {
@@ -156,6 +166,7 @@ class PushNotificationService {
 
   /// Checks if push subscription is currently active.
   bool isPushOptedIn() {
+    if (kIsWeb) return _pushEnabled;
     try {
       return OneSignal.User.pushSubscription.optedIn ?? _pushEnabled;
     } catch (_) {
