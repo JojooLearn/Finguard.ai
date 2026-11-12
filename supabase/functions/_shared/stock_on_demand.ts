@@ -1,6 +1,7 @@
 // supabase/functions/_shared/stock_on_demand.ts
 import yahooFinance from "npm:yahoo-finance2@2.13.3";
 import { RSI, SMA } from "npm:technicalindicators@3.1.0";
+import { callGeminiWithGoogleSearch } from "./gemini.ts";
 
 try {
   (yahooFinance as any).suppressNotices?.(["yahooSurvey"]);
@@ -1039,7 +1040,7 @@ export async function fetchOnDemandStockAnalysis(rawTicker: string): Promise<OnD
 export function formatOnDemandPromptContext(analysis: OnDemandStockAnalysis): string {
   if (!analysis.isSuccess || analysis.price === 0) {
     return `[SYSTEM CONTEXT: DATA SAHAM ON-DEMAND (${analysis.ticker})]
-Catatan Sistem: Emiten ${analysis.ticker} belum memiliki riwayat perdagangan di pasar sekunder Yahoo Finance (kemungkinan besar sedang dalam tahap Bookbuilding / Penawaran Awal e-IPO di BEI). Gunakan data dari bagian [SYSTEM CONTEXT: ENGINE ANALISIS SAHAM IPO] di bawah jika pengguna menanyakan saham IPO ${analysis.ticker}!`;
+Status Verifikasi Bursa: Kode ${analysis.ticker} TIDAK DITEMUKAN di data pasar sekunder Yahoo Finance BEI. JANGAN mengasumsikan atau mengarang bahwa kode ${analysis.ticker} sedang dalam proses IPO kecuali benar-benar terkonfirmasi secara eksplisit di hasil riset Google Search Live atau pengumuman e-IPO resmi!`;
   }
 
   const lotPrice = analysis.price * 100;
@@ -1066,16 +1067,16 @@ Catatan Sistem: Emiten ${analysis.ticker} belum memiliki riwayat perdagangan di 
   const headlinesFormatted =
     analysis.newsHeadlines.length > 0
       ? analysis.newsHeadlines.map((h, i) => `  ${i + 1}. "${h}"`).join("\n")
-      : `  1. "Aktivitas perdagangan ${analysis.ticker} terpantau aktif seiring dinamika sektoral BEI."`;
+      : `  1. "(Belum ada berita mendesak spesifik untuk ${analysis.ticker} di feed berita)"`;
 
-  return `[SYSTEM CONTEXT: DATA SAHAM ON-DEMAND TERVERIFIKASI (${analysis.ticker} - ${companyName})]
-Sumber Data: ${analysis.dataTierUsed || "Tier-1 Live Market Feed"}
-PERINGATAN WAJIB UNTUK AI COACH:
-Data di bawah ini adalah DATA FAKTUAL REAL-TIME dari bursa untuk saham ${analysis.ticker}. DILARANG KERAS mengatakan "data ${analysis.ticker} tidak ada di feed FinGuard"! Anda WAJIB menyebutkan tanggal perdagangan terakhir (${analysis.lastTradeDate}), harga penutupan terakhir (Rp${analysis.price.toLocaleString("id-ID")}), total Bid/Offer, kode broker Top Buyer/Seller, dan persentase rekomendasi di bawah ini!
+  return `[SYSTEM CONTEXT: DATA SAHAM ON-DEMAND TERVERIFIKASI YAHOO FINANCE (${analysis.ticker} - ${companyName})]
+Sumber Data: ${analysis.dataTierUsed || "Tier-1 Live Market Feed (Yahoo Finance OHLCV + Berita Web)"}
+ATURAN KETAT ANALISIS:
+- Data harga, tanggal bursa terakhir (${analysis.lastTradeDate}), OHLCV, RSI, MA5/20/50, ATR(14), dan Support/Resistance di bawah ini dihitung secara deterministik dari feed live Yahoo Finance.
+- Estimasi rasio tekanan volume candle & profil pelaku pasar bersifat indikasi OHLCV/karakter historis (bukan L2 Order Book real-time BEI), sampaikan secara jujur & akurat tanpa mengarang fakta palsu.
 
-0. KEPUTUSAN REKOMENDASI KUANTITATIF (WAJIB TAMPILKAN DI AWAL JAWABAN):
-  - Keputusan Rekomendasi: **${analysis.recommendationVerdict}**
-  - Persentase Skor Keyakinan: **BUY ${analysis.buyConfidencePct}% vs SELL/AVOID ${analysis.sellAvoidPct}%**
+0. SKOR TEKNIKAL & LEVEL MANAJEMEN RISIKO:
+  - Indikasi Kuantitatif OHLCV: **${analysis.recommendationVerdict}** (Skor: BUY ${analysis.buyConfidencePct}% vs WAIT/AVOID ${analysis.sellAvoidPct}%)
   - Area Beli Ideal (Support Bid): Rp ${Math.max(50, analysis.price - getIdxTickSize(analysis.price) * 2).toLocaleString("id-ID")} - Rp ${analysis.price.toLocaleString("id-ID")}
   - Target Harga (Take Profit / Resistance): **${analysis.targetPriceRange}**
   - Batas Aman (Stop Loss / Cut Loss): **${analysis.stopLossLevel}**
@@ -1098,14 +1099,224 @@ Data di bawah ini adalah DATA FAKTUAL REAL-TIME dari bursa untuk saham ${analysi
   - Aturan Pasang Trailing Stop (TS): Pasang **Trailing Stop ${analysis.trailingStopPct ?? 4.5}%** di bawah puncak tertinggi intraday/harian (estimasi awal TS dari closing: **Rp ${(analysis.trailingStopPrice ?? analysis.price).toLocaleString("id-ID")}** per lembar) atau Cut Loss ketat di bawah Support S1/S2.
   - Horizon Hold vs Daily Trading: ${analysis.holdingHorizonStrategy || "-"}
 
-4. RINCIAN ORDER BOOK SPESIFIK (TOTAL BID, TOTAL OFFER & ANTREAN FRAKSI HARGA):
+4. ESTIMASI TEKANAN VOLUME CANDLE & PROFIL LIKUIDITAS HISTORIS (NON-L2):
   - ${analysis.orderBookSummary}
-
-5. RINCIAN BROKER SUMMARY TERAKHIR (KODE BROKER AKUMULASI VS DISTRIBUSI PER ${analysis.lastTradeDate}):
   - ${analysis.brokerProfileSummary}
 
-6. SENTIMEN BERITA & AKSI KORPORASI TERBARU:
+5. BERITA TERKINI EMITEN:
 ${headlinesFormatted}`;
+}
+
+/**
+ * Resolves full Indonesian company names (e.g. "PT Agro Bahari Nusantara Tbk" -> UDNG)
+ * via live Yahoo Finance Search API so the Coach never mistakes a word inside the company name (e.g. "Agro") for an unrelated ticker (AGRO).
+ */
+export async function searchIdxTickersByCompanyName(
+  companyName: string,
+  timeoutMs = 3000,
+): Promise<Array<{ ticker: string; symbol: string; name: string }>> {
+  const rawClean = companyName.replace(/\s+/g, " ").trim();
+  if (!rawClean) return [];
+
+  const stripped = rawClean
+    .replace(/^\bPT\.?\s+/i, "")
+    .replace(/\b(?:Persero\s+)?Tbk\.?$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const queries = Array.from(new Set([rawClean, stripped])).filter((q) => q.length >= 3);
+  for (const q of queries) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`;
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Accept": "application/json",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const quotes: any[] = Array.isArray(json?.quotes) ? json.quotes : [];
+      const matches = quotes
+        .filter((item) => item?.symbol && (String(item.symbol).endsWith(".JK") || item.exchange === "JKT"))
+        .map((item) => ({
+          symbol: String(item.symbol).toUpperCase(),
+          ticker: String(item.symbol).toUpperCase().replace(/\.JK$/i, ""),
+          name: String(item.longname || item.shortname || item.symbol),
+        }))
+        .filter((m) => /^[A-Z]{4}$/.test(m.ticker));
+      if (matches.length > 0) {
+        return matches.slice(0, 3);
+      }
+    } catch (_) {
+      clearTimeout(timer);
+    }
+  }
+  return [];
+}
+
+/**
+ * Fetches live active IPO listings directly from e-ipo.co.id (when accessible) plus web news snippets.
+ */
+async function fetchLiveEipoPortalHighlights(timeoutMs = 3000): Promise<string[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch("https://e-ipo.co.id/id/ipo/index", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const html = await res.text();
+    const titles: string[] = [];
+    // Extract card titles/status tags if present without Cloudflare wall
+    if (/cf-challenge|Just a moment|Attention Required/i.test(html)) {
+      return [];
+    }
+    const cardRegex = /<h[3-6][^>]*>([\s\S]{3,140}?)<\/h[3-6]>/gi;
+    for (const m of html.matchAll(cardRegex)) {
+      const clean = m[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      if (clean.length >= 6 && !/e-IPO|Filter|Search|Menu/i.test(clean)) {
+        titles.push(clean);
+      }
+    }
+    return Array.from(new Set(titles)).slice(0, 8);
+  } catch (_) {
+    clearTimeout(timer);
+    return [];
+  }
+}
+
+export interface LiveStockResearchResult {
+  researchPromptSection: string;
+  discoveredTickers: string[];
+  sources: Array<{ title: string; uri: string }>;
+}
+
+const INVALID_DISCOVERED_CODES = new Set([
+  "NONE", "NULL", "IHSG", "IDX", "BEI", "OJK", "MSCI", "FTSE", "USD", "IDR",
+  "HARI", "SISA", "YANG", "DARI", "UNTUK", "PADA", "AKAN", "BISA", "BARU",
+  "SAHAM", "EMITEN", "LISTING", "IPO", "EIPO", "OPEN", "HOLD", "SELL", "WAIT",
+  "TBK", "PERS", "BANK", "CARI", "DATA", "INFO", "LIVE", "TREN", "HAKA", "HAKI",
+]);
+
+/**
+ * Autonomous Live Web Research Pipeline using Gemini Google Search Grounding (`google_search`),
+ * Yahoo Finance Company Search, and Live News/e-IPO verification.
+ * Eliminates reliance on local `stock_signals` DB and prevents hallucinating non-existent tickers ("SISA", "HARI").
+ */
+export async function runLiveStockAndMarketResearch({
+  message,
+  recentHistory = [],
+  companyNames = [],
+  explicitTickers = [],
+  isIpoQuery = false,
+  todayStr,
+}: {
+  message: string;
+  recentHistory?: Array<{ sender?: string; role?: string; content?: string }>;
+  companyNames?: string[];
+  explicitTickers?: string[];
+  isIpoQuery?: boolean;
+  todayStr: string;
+}): Promise<LiveStockResearchResult> {
+  const historySummary = recentHistory
+    .slice(-4)
+    .map((m) => `${m.sender === "user" || m.role === "user" ? "User" : "Coach"}: ${String(m.content || "").slice(0, 220)}`)
+    .join("\n");
+
+  const searchTaskPrompt = `Tanggal hari ini: ${todayStr} (WIB).
+Anda adalah analis riset pasar modal Indonesia (BEI / IDX) dengan akses Google Search LIVE.
+Lakukan riset Google Search SEKARANG terhadap pertanyaan user dan konteks percakapan berikut:
+
+${historySummary ? `Konteks chat terakhir:\n${historySummary}\n\n` : ""}Pertanyaan user saat ini: "${message}"
+${companyNames.length > 0 ? `Nama perusahaan yang disebut user: ${companyNames.join(", ")}` : ""}
+${explicitTickers.length > 0 ? `Ticker yang terdeteksi: ${explicitTickers.join(", ")}` : ""}
+
+ATURAN WAJIB ANTI-HALUSINASI (SANGAT KETAT):
+1. DILARANG KERAS mengarang, menebak, atau menyebut kode ticker saham/IPO fiktif (contoh: SISA, HARI, dll. dari kata biasa Bahasa Indonesia).
+2. Jika user menyebut nama perusahaan (misal "PT Agro Bahari Nusantara Tbk"), CARI di Google Search kode ticker resminya yang benar di BEI (misal UDNG — BUKAN AGRO Bank Raya!), tahun listing IPO-nya, sektor bisnis, dan kondisi terkininya.
+3. Jika user mengecek pasar saham hari ini / rekomendasi saham / IPO hangat (contoh: "mau cek saham", "gimana saham hari ini", "saham bagus apa"):
+   - Cari sentimen IHSG terkini, saham-saham BEI yang benar-benar sedang aktif diberitakan/likuid di media finansial tepercaya (CNBC Indonesia, Kontan, Bisnis, IDX) hari ini.
+   - Untuk topik IPO / e-IPO: HANYA sebutkan emiten IPO yang BENAR-BENAR sedang masa penawaran / listing terbaru di portal resmi e-ipo.co.id atau idx.co.id per tanggal riset Google Search ini! Jika Google Search TIDAK menemukan emiten IPO yang aktif hari ini atau tahun ini, katakan secara eksplisit "TIDAK ADA EMITEN IPO AKTIF TERKONFIRMASI" — JANGAN mengarang nama IPO!
+4. Cantumkan ringkasan fakta riset ringkas dan akurat dalam poin pendek berbahasa Indonesia, lalu tutup di baris PALING AKHIR dengan format persis:
+VERIFIED_TICKERS: [daftar 1-4 kode ticker 4 huruf resmi BEI yang terkonfirmasi ada dari hasil Google Search dan relevan dengan pertanyaan, dipisah koma, atau NONE jika tidak ada]`;
+
+  const [companyResultsList, googleSearchRes] = await Promise.all([
+    companyNames.length > 0
+      ? Promise.all(companyNames.map((cn) => searchIdxTickersByCompanyName(cn)))
+      : Promise.resolve([] as Array<Array<{ ticker: string; symbol: string; name: string }>>),
+    callGeminiWithGoogleSearch({
+      prompt: searchTaskPrompt,
+      temperature: 0.1,
+      timeoutMs: 11000,
+      maxOutputTokens: 900,
+    }),
+  ]);
+
+  const discoveredSet = new Set<string>();
+  const resolvedCompanyLines: string[] = [];
+
+  for (const matches of companyResultsList) {
+    for (const m of matches.slice(0, 2)) {
+      discoveredSet.add(m.ticker);
+      resolvedCompanyLines.push(`- Pencarian Yahoo Finance Resmi: **${m.ticker}** (${m.name})`);
+    }
+  }
+
+  let researchText = googleSearchRes.text || "";
+  if (researchText) {
+    const tickerLineMatch = researchText.match(/VERIFIED_TICKERS\s*:\s*(.+)$/im);
+    if (tickerLineMatch) {
+      const rawTokens = tickerLineMatch[1]
+        .replace(/[[\]`*]/g, "")
+        .split(/[\s,;]+/)
+        .map((t) => t.trim().toUpperCase().replace(/\.JK$/i, ""));
+      for (const tok of rawTokens) {
+        if (/^[A-Z]{4}$/.test(tok) && !INVALID_DISCOVERED_CODES.has(tok)) {
+          discoveredSet.add(tok);
+        }
+      }
+      researchText = researchText.replace(/VERIFIED_TICKERS\s*:.*$/im, "").trim();
+    }
+  }
+
+  const sourcesText =
+    googleSearchRes.sources.length > 0
+      ? `\nSumber Web Terverifikasi Google Search:\n${googleSearchRes.sources.map((s, i) => `  ${i + 1}. ${s.title} (${s.uri})`).join("\n")}`
+      : "";
+
+  const parts: string[] = [];
+  if (resolvedCompanyLines.length > 0) {
+    parts.push(`HASIL PENCARIAN NAMA EMITEN RESMI:\n${resolvedCompanyLines.join("\n")}`);
+  }
+  if (researchText) {
+    parts.push(`HASIL RISET WEB GOOGLE SEARCH LIVE (${todayStr} WIB):\n${researchText}${sourcesText}`);
+  }
+
+  if (parts.length === 0) {
+    return {
+      researchPromptSection: "",
+      discoveredTickers: Array.from(discoveredSet).slice(0, 4),
+      sources: googleSearchRes.sources,
+    };
+  }
+
+  return {
+    researchPromptSection: `[SYSTEM CONTEXT: HASIL RISET MANDIRI LIVE (GOOGLE SEARCH & YAHOO SEARCH — TANPA DB stock_signals)]
+${parts.join("\n\n")}
+ATURAN KETAT: JANGAN PERNAH mengarang atau menambah kode ticker/IPO di luar ticker yang benar-benar terverifikasi pada konteks live ini atau Yahoo Finance!`,
+    discoveredTickers: Array.from(discoveredSet).slice(0, 4),
+    sources: googleSearchRes.sources,
+  };
 }
 
 /**
@@ -1119,19 +1330,19 @@ export async function fetchMarketSentimentAndMacroNews(userMessage: string): Pro
     queries.push("MSCI rebalancing saham Indonesia BEI IHSG");
   }
   if (lower.includes("ipo") || lower.includes("e-ipo") || lower.includes("listing")) {
-    queries.push("saham IPO terbaru BEI e-IPO prospektus ARA");
+    queries.push("site:e-ipo.co.id OR saham IPO BEI terbaru");
   }
   if (lower.includes("viral") || lower.includes("ramai") || lower.includes("rame") || lower.includes("trending")) {
-    queries.push("saham paling ramai diburu investor IHSG hari ini");
+    queries.push("saham paling aktif bursa efek Indonesia IHSG");
   }
   if (lower.includes("asing") || lower.includes("net buy") || lower.includes("net sell") || lower.includes("broker") || lower.includes("bandar")) {
     queries.push("investor asing net buy net sell saham BEI IHSG");
   }
   if (lower.includes("dividen")) {
-    queries.push("jadwal dividen saham BEI yield besar terbaru");
+    queries.push("jadwal dividen saham BEI yield terbaru");
   }
 
-  queries.push("IHSG sentimen pasar saham Indonesia hari ini");
+  queries.push("IHSG pasar saham Indonesia hari ini");
 
   const results = await Promise.all(
     queries.slice(0, 3).map((q) => fetchBingNewsSnippetsByQuery(q, 3))
@@ -1146,112 +1357,68 @@ export async function fetchMarketSentimentAndMacroNews(userMessage: string): Pro
   }
   if (uniqueHeadlines.length === 0) return "";
 
-  return `[SYSTEM CONTEXT: BERITA PASAR LIVE, SENTIMEN IHSG, MSCI & ISU VIRAL TERKINI]
-Berikut adalah berita dan ringkasan pasar modal Indonesia real-time dari sumber berita finansial (CNBC Indonesia, Kontan, Bisnis, Investor.id):
+  return `[SYSTEM CONTEXT: BERITA PASAR LIVE, SENTIMEN IHSG & KATALIS TERKINI]
+Berikut adalah berita pasar modal Indonesia real-time dari feed berita finansial:
 ${uniqueHeadlines.map((h, i) => `  ${i + 1}. "${h}"`).join("\n")}
 
-PANDUAN DISKUSI PASAR & MSCI:
-- Gunakan headline & ringkasan berita di atas sebagai referensi faktual untuk berdiskusi secara cerdas dan mendalam.
-- Jika membahas MSCI / FTSE Rebalancing: jelaskan dampaknya terhadap arus dana institusi asing (Foreign Passive & Active Fund melalui broker AK, ZP, BK, KZ, RX) yang memicu lonjakan volume pada effective date.
-- Jika membahas sentimen pasar / saham viral: bedah katalis penggeraknya (fundamental laporan keuangan, harga komoditas, aksi korporasi/dividen, atau euforia spekulatif).`;
+PANDUAN DISKUSI PASAR & ANTI-HALUSINASI:
+- Gunakan HANYA berita & ticker faktual yang tercantum atau terverifikasi oleh Google Search Grounding / Yahoo Finance. DILARANG mengarang nama/kode saham atau IPO dari potongan kata berita!`;
 }
 
 /**
- * Built-in Reference Profiles for Active & Upcoming BEI e-IPO Stocks (ANDA, WBSA, EMMI, JELI, etc.)
- */
-const EIPO_REFERENCE_DATABASE: Record<string, string> = {
-  ANDA: `[DATA PROSPEKTUS & e-IPO RESMI EMITEN: ANDA - PT Andalan Artha Primanusa Tbk]
-- Nama Emiten: PT Andalan Artha Primanusa Tbk (Kode Ticker: **ANDA**)
-- Status di e-IPO: Sedang Masa Penawaran Awal (Bookbuilding) & Penawaran Umum Perdana Saham di BEI
-- Sektor & Bidang Usaha: Energi & Pertambangan — Kontraktor Pertambangan Batu Bara & Nikel
-- Kompetitor Sejenis di Bursa: DEWA (Darma Henwa Tbk), DOID (Delta Dunia Makmur Tbk), PTRO (Petrosea Tbk), UNTR (United Tractors Tbk)
-- Rentang Harga Penawaran (e-IPO): **Rp158 – Rp189 per lembar saham** (Rp15.800 – Rp18.900 per Lot). Pada aplikasi e-IPO ritel (batas bawah pemesanan), harga pesanan tercatat di **Rp158/lembar (Rp15.800/lot)**.
-- Jumlah Saham Ditawarkan: **16.760.000 Lot** (1.676.000.000 lembar saham baru / **25,10%** dari modal ditempatkan dan disetor penuh setelah IPO)
-- Target Himpunan Dana Segar IPO: **Rp316,76 Miliar** (Masuk **Golongan II** e-IPO: Rp250 Miliar s/d Rp500 Miliar -> Alokasi Pooling Ritel 15% - 20% = ~2.514.000 s/d 3.352.000 Lot, dibagi rasio 1:1 antara Ritel Non-Besar <Rp100 juta dan Ritel Besar >=Rp100 juta)
-- Pemanis (Sweetener) Bonus Waran Seri I: **ADA BONUS WARAN**! Setiap pemesanan saham IPO ANDA mendapat **Bonus Waran Seri I** secara gratis dengan rasio sekitar **7 : 1 (atau setiap pesan 10 Lot saham mendapat estimasi ~1,42 Lot Bonus Waran)**. Karena harga Waran di hari pertama listing tidak dibatasi Auto Rejection Atas (ARA), bonus waran ini menjadi pendongkrak cuan instan bagi ritel!
-- Penggunaan Dana Hasil IPO: Digunakan untuk pelunasan sebagian pokok utang perusahaan serta modal kerja operasional kontraktor tambang (Catatan Analis: Kinerja laba melonjak tajam, namun porsi penggunaan dana untuk bayar utang membuat profil risikonya cocok untuk jangka pendek / momentum listing, bukan hold jangka panjang).
-- Underwriter (Penjamin Pelaksana Emisi Efek): **HP (PT Henan Putihrai Sekuritas)** — Track Record Historis UW HP sangat terkenal di kalangan trader IPO karena pernah mengawal saham-saham multi-ARA seperti **BREN (5x ARA), CUAN (Multi-ARA), PTRO, dan RATU (Multi-ARA)**, meskipun investor tetap wajib disiplin karena HP sempat mendapat sorotan/sanksi administratif OJK terkait penjatahan kasus IPO sebelumnya.
-- Keputusan Rekomendasi Radar IPO FinGuard:
-  * **REKOMENDASI**: **SPECULATIVE BUY (78% Buy Momentum Listing + Pemanis Waran vs 22% Risiko Utang Emiten)**
-  * **POTENSI LISTING HARI PERTAMA**: **OPEN HIGH / POTENSI 1x - 2x ARA + CUAN BONUS WARAN SERI I**
-  * **STRATEGI RITEL**: Sangat menarik untuk diikuti dengan modal terukur (misal pesan 10 - 20 lot = Rp158.000 - Rp316.000) demi mengincar gain hari pertama listing + keuntungan jual Waran Seri I. Pasang Trailing Stop ketat saat hari pencatatan perdana!`,
-
-  WBSA: `[DATA PROSPEKTUS & e-IPO RESMI EMITEN: WBSA - PT BSA Logistics Indonesia Tbk]
-- Nama Emiten: PT BSA Logistics Indonesia Tbk (Kode Ticker: **WBSA**)
-- Sektor & Papan: Transportasi & Logistik | Papan Pengembangan
-- Kompetitor Utama: ASSA (Adi Sarana Armada Tbk), SMDR (Samudera Indonesia Tbk), TMAS, NELY
-- Penggunaan Dana Hasil IPO: Modal kerja (working capital) & ekspansi armada/jaringan logistik
-- Laporan Keuangan: Tren pendapatan meningkat positif dari tahun 2022 hingga proyeksi 2025
-- Valuasi & Harga Penawaran IPO: Harga IPO ~Rp170/lembar (Rp17.000/lot) | PER: ~53x | PBV: ~4.5x | DER: ~1.56x | ROE: ~7.39% | EPS: ~2.8 | Estimasi Market Cap: ~Rp1,5 Triliun
-- Jumlah Saham Ditawarkan: 18.000.000 Lot (1,8 Miliar lembar / ~20,75% dari modal ditempatkan & disetor) | Target Dana IPO: ~Rp300 Miliar (Golongan II/III)
-- Kebijakan Dividen: Maksimal ~10% dari laba bersih | Waran: Tanpa Waran (-)
-- Underwriter (Penjamin Pelaksana Emisi Efek):
-  1. **MG (Semesta Indovest Sekuritas)** — Track Record IPO: BDKR (Open High +15%), PDPP (1x ARA), TGUK (1x ARA), GOLF (1x ARA).
-  2. **TP (OCBC Sekuritas Indonesia)** — Track Record IPO: BREN (5x ARA), IKPM (Open High +10%), HGII (Open High +5%), YUPI (Open High +5%).
-- Keputusan Rekomendasi Radar IPO FinGuard:
-  * **REKOMENDASI**: **BUY (80% Momentum Listing vs 20% Valuasi Premium)**
-  * **POTENSI LISTING HARI PERTAMA**: **OPEN HIGH / POTENSI 1x ARA** berkat kombinasi duet Underwriter MG & TP.`,
-
-  EMMI: `[DATA PROSPEKTUS & e-IPO RESMI EMITEN: EMMI - PT Esa Medika Mandiri Tbk]
-- Nama Emiten: PT Esa Medika Mandiri Tbk (Kode Ticker: **EMMI**)
-- Sektor: Kesehatan (Healthcare & Distribusi Alat/Layanan Medis)
-- Rentang Harga Bookbuilding / Final IPO: Rp446 – Rp515 per saham (Harga Final IPO: **Rp470/lembar** atau Rp47.000/lot)
-- Performa & Catatan: Melibatkan 2 underwriter, debut perdana bergerak positif (Open High +17,02%).`,
-};
-
-/**
- * Extracts IPO Ticker accurately even when sentence contains Indonesian pronoun "anda"
- * e.g. "coba anda analisa ipo ANDA" -> "ANDA"
- * e.g. "coba anda analisa ipo WBSA" -> "WBSA"
+ * Extracts explicit IPO Ticker ONLY when clearly written as an ALL-CAPS or prefixed ticker (never common Indonesian words like "hari", "sisa", "agro").
  */
 function extractTargetIpoTicker(userMessage: string): string {
-  // 1. Check explicit word right after ipo / e-ipo / saham / emiten / ticker
-  const explicitMatch = userMessage.match(
-    /\b(?:ipo|e-ipo|eipo|saham|emiten|ticker|kode)\s+([a-zA-Z]{4})\b/i
-  );
-  if (explicitMatch) {
-    const candidate = explicitMatch[1].toUpperCase();
-    if (!["YANG", "DARI", "UNTUK", "PADA", "SAYA", "KAMU", "BISA", "BARU", "HARI"].includes(candidate)) {
-      return candidate;
-    }
-  }
-
-  // 2. Check all 4-letter words, ignoring common Indonesian stopwords (including lowercase "anda" if another ticker exists)
   const stopWords = new Set([
     "SAHAM", "SAHAN", "YANG", "DARI", "UNTUK", "PADA", "AKAN", "BISA", "KIRA",
     "APA", "SAYA", "KAMU", "GUE", "LAGI", "KALAU", "KALO", "COBA", "ANALISA",
     "ANALISIS", "GIMANA", "BERAPA", "JATAH", "LOT", "BELI", "UANG", "CUMA",
-    "TAHU", "SAJA", "JADI", "TADI", "BILA", "CARA", "DATA", "NAMA", "TANYA"
+    "TAHU", "SAJA", "JADI", "TADI", "BILA", "CARA", "DATA", "NAMA", "TANYA",
+    "HARI", "SISA", "MASIH", "MAKSUD", "TAHUN", "BUKAN", "AGRO", "NUSA", "TBK",
+    "YANG", "BUAT", "CARI", "CEK", "INFO", "BARU", "LAMA", "KEMARIN", "BESOK"
   ]);
 
-  const rawWords = userMessage.match(/\b[a-zA-Z]{4}\b/g) || [];
-  const candidates: string[] = [];
-  for (const w of rawWords) {
-    const upper = w.toUpperCase();
-    if (stopWords.has(upper)) continue;
-    // If word is "anda", only treat as ticker if written in ALL CAPS "ANDA"
-    if (upper === "ANDA" && w !== "ANDA") continue;
-    candidates.push(upper);
+  const sanitized = userMessage
+    .replace(/\bPT\.?\s+[A-Za-z0-9][A-Za-z0-9\s.&'-]{2,60}?\s+Tbk\b/gi, " ")
+    .replace(/\bPT\.?\s+(?:[A-Z][a-zA-Z0-9.&'-]+\s+){1,5}[A-Z][a-zA-Z0-9.&'-]+\b/g, " ");
+
+  const explicitMatch = sanitized.match(
+    /\b(?:ipo|e-ipo|eipo|saham|emiten|ticker|kode)\s+([a-zA-Z]{4})\b/i
+  );
+  if (explicitMatch) {
+    const raw = explicitMatch[1];
+    const candidate = raw.toUpperCase();
+    if (!stopWords.has(candidate) && !(candidate === "ANDA" && raw !== "ANDA")) {
+      return candidate;
+    }
   }
 
-  return candidates[0] || "";
+  const allCapsWords = sanitized.match(/\b[A-Z]{4}\b/g) || [];
+  for (const w of allCapsWords) {
+    if (!stopWords.has(w) && w !== "EIPO" && w !== "IHSG" && w !== "OJK" && w !== "MSCI") {
+      return w;
+    }
+  }
+
+  return "";
 }
 
 /**
- * Fetches IPO Stock Intelligence, Underwriter Track Records, & OJK/BEI e-IPO Allotment Calculations
+ * Fetches LIVE IPO Stock Intelligence (e-ipo.co.id + Bing/Google News RSS + SEOJK pooling rules)
+ * WITHOUT any stale hardcoded ticker database or fake "TERDAFTAR DI PIPELINE e-IPO" claims.
  */
 export async function fetchIpoStockIntelligence(userMessage: string): Promise<string> {
   const targetIpoTicker = extractTargetIpoTicker(userMessage);
 
-  // Run multi-source search in parallel: Targeted Google News + Targeted Bing News Snippets (with full descriptions!)
   const queries = targetIpoTicker
     ? [
-      `IPO saham ${targetIpoTicker} BEI`,
-      `IPO ${targetIpoTicker} underwriter harga saham`,
+      `IPO saham ${targetIpoTicker} e-ipo BEI`,
+      `IPO ${targetIpoTicker} underwriter harga prospektus`,
     ]
-    : [`saham IPO BEI e-IPO terbaru underwriter`];
+    : [`site:e-ipo.co.id OR "IPO" saham BEI terbaru penawaran`];
 
-  const [bingSnippets1, googleTitles1, googleTitles2] = await Promise.all([
+  const [portalListings, bingSnippets1, googleTitles1, googleTitles2] = await Promise.all([
+    fetchLiveEipoPortalHighlights(),
     fetchBingNewsSnippetsByQuery(queries[0], 5),
     fetchGoogleNewsRssByQuery(queries[0], 5),
     queries[1] ? fetchGoogleNewsRssByQuery(queries[1], 4) : Promise.resolve([]),
@@ -1259,7 +1426,6 @@ export async function fetchIpoStockIntelligence(userMessage: string): Promise<st
 
   let ipoNews = Array.from(new Set([...bingSnippets1, ...googleTitles1, ...googleTitles2])).slice(0, 8);
 
-  // Tier-2 Fallback via Proxy Scraping API if Tier-1 found nothing for an unknown IPO ticker
   if (ipoNews.length === 0 && targetIpoTicker) {
     const proxyText = await fetchViaProxyScraperFallback(
       `https://www.google.com/search?q=IPO+saham+${targetIpoTicker}+prospektus+harga+underwriter+BEI`
@@ -1269,54 +1435,20 @@ export async function fetchIpoStockIntelligence(userMessage: string): Promise<st
     }
   }
 
-  const builtInRef = targetIpoTicker && EIPO_REFERENCE_DATABASE[targetIpoTicker]
-    ? `\n${EIPO_REFERENCE_DATABASE[targetIpoTicker]}\n`
-    : "";
+  return `[SYSTEM CONTEXT: RISET LIVE e-IPO BEI & PEDOMAN PENJATAHAN OJK]
+${targetIpoTicker ? `Kode Saham IPO yang Dicek: **${targetIpoTicker}**` : "Topik: Riset Live Pipeline e-IPO BEI"}
+${portalListings.length > 0 ? `Data Langsung Portal e-ipo.co.id:\n${portalListings.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}\n` : ""}Berita & Ringkasan Fakta e-IPO Live:
+${ipoNews.length > 0 ? ipoNews.map((n, i) => `  ${i + 1}. "${n}"`).join("\n") : "  - (Tidak ditemukan berita spesifik mengenai IPO baru yang sedang aktif di feed berita langsung saat ini.)"}
 
-  return `[SYSTEM CONTEXT: ENGINE ANALISIS SAHAM IPO, TRACK RECORD UNDERWRITER & KALKULATOR PENJATAHAN e-IPO BEI]
-${targetIpoTicker ? `Emiten IPO yang Ditanyakan: **${targetIpoTicker}** (TERDAFTAR DI PIPELINE e-IPO BEI — BUKAN EMITEN FIKTIF/SILUMAN!)` : "Topik: Analisis Saham IPO & Penjatahan e-IPO BEI"}
-${builtInRef}
-BERITA, PROSPEKTUS & RINGKASAN FAKTA IPO ${targetIpoTicker || "TERBARU"} DARI MEDIA FINANSIAL PASAR MODAL:
-${ipoNews.length > 0 ? ipoNews.map((n, i) => `  ${i + 1}. "${n}"`).join("\n") : "  - Pantau prospektus resmi e-IPO (e-ipo.co.id) untuk jadwal bookbuilding dan penawaran umum."}
-
-DATABASE TRACK RECORD UNDERWRITER (UW) POPULER BEI:
-- **HP (Henan Putihrai Sekuritas)**: Mengawal IPO **ANDA (Andalan Artha Primanusa)**, **BREN (5x ARA)**, **CUAN (Multi-ARA)**, **PTRO**, **RATU (Multi-ARA)** — Spesialis IPO ber-momentum tinggi dengan track record ARA beruntun, namun perlu disiplin trailing stop.
-- **MG (Semesta Indovest Sekuritas)**: BDKR (Open High 15%), PDPP (1x ARA), TGUK (1x ARA), GOLF (1x ARA), WBSA — Dikenal agresif mengawal likuiditas & momentum listing hari pertama.
-- **TP (OCBC Sekuritas Indonesia)**: BREN (5x ARA), IKPM (Open High 10%), HGII (Open High 5%), YUPI (Open High 5%), WBSA — Reputasi institusi solid.
-- **CC (Mandiri Sekuritas) & NI (BNI Sekuritas)**: CBDK (Multi-ARA), PGEO, MBMA — Underwriter institusi BUMN/Big Cap, fokus fundamental jangka menengah.
-- **PD (Indo Premier) & YJ (Lotus Andalan)**: Sering menangani IPO skala menengah-besar dengan distribusi ritel luas.
+ATURAN KETAT ANTI-HALUSINASI IPO:
+- JANGAN PERNAH mengarang atau menyebut kode emiten IPO (seperti SISA, HARI, dll.) apabila tidak tertulis secara jelas pada "HASIL RISET WEB GOOGLE SEARCH LIVE", "Data Langsung Portal e-ipo.co.id", atau "Berita e-IPO Live" di atas!
+- Jika ticker yang ditanyakan ternyata sudah listing lama di bursa (misal listing tahun lalu/2023-2025 seperti UDNG - PT Agro Bahari Nusantara Tbk), jelaskan faktanya secara jujur sesuai tanggal listing dan harga live Yahoo Finance!
+- Jika benar-benar tidak ada IPO aktif yang terkonfirmasi hari ini pada hasil riset live, katakan apa adanya dan arahkan user mengecek e-ipo.co.id tanpa mengarang kode ticker.
 
 PEDOMAN PERHITUNGAN PENJATAHAN e-IPO (SEOJK No. 15/SEOJK.04/2020):
-- Klasifikasi Golongan IPO berdasarkan nilai emisi:
-  * Golongan I (<= Rp250 Miliar): Alokasi awal Pooling Ritel min. 15% (naik s/d 25% jika oversubscribed >25x)
-  * Golongan II (Rp250 M - Rp500 M, contoh: IPO ANDA Rp316,76 Miliar & WBSA Rp300 Miliar): Alokasi Pooling Ritel 15% - 20%
-  * Golongan III (Rp500 M - Rp1 Triliun): Alokasi Pooling Ritel 10% - 20%
-  * Golongan IV (> Rp1 Triliun): Alokasi Pooling Ritel min. 2,5% - 10%
-- Pembagian Jatah Ritel (Pooling Allotment): Menggunakan **Rasio 1:1** (50% untuk Ritel Non-Besar dengan pesanan < Rp100 juta, dan 50% untuk Ritel Besar dengan pesanan >= Rp100 juta).
-- Simulasi Estimasi Lot per SID Investor Ritel:
-  * Total 400.000 antrean -> ~4 - 5 Lot per SID
-  * Total 500.000 antrean -> ~3 - 4 Lot per SID
-  * Total 600.000 antrean -> ~2 - 3 Lot per SID
-  * Total 700.000 - 900.000 antrean -> ~2 - 3 Lot per SID
-  * Di atas 1.000.000 antrean -> ~1 - 2 Lot per SID
-  * Rekomendasi Pemesanan Rasional Ritel: Cukup pesan **10 - 20 Lot saja** (misal pada IPO ANDA harga Rp158/lembar, pesan 10 lot = Rp158.000 sudah dapat estimasi ~1,42 lot Bonus Waran tanpa perlu mengunci uang puluhan juta).
-
-FORMAT WAJIB SAAT MENJAWAB ANALISIS SAHAM IPO (STANDAR RADAR IPO FINGUARD):
-Setiap kali pengguna menanyakan analisis saham IPO (seperti ANDA, WBSA, dll.), AI Coach WAJIB membuka jawaban dengan KOTAK RANGKUMAN KEPUTUSAN EKSEKUTIF yang tegas:
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 **RANGKUMAN RADAR [${targetIpoTicker || "EMITEN"}]**
-• **REKOMENDASI**: **BUY / SPECULATIVE BUY (78% - 80% Momentum Listing)** [atau WAIT & SEE / AVOID beserta persentasenya]
-• **POTENSI LISTING HARI PERTAMA**: **OPEN HIGH / POTENSI 1x ARA** [+ Info Bonus Waran jika ada]
-• **UNDERWRITER UTAMA**: **[Sebutkan Kode Broker UW, misal HP - Henan Putihrai Sekuritas / MG & TP]**
-• **PROFIL RISIKO & STRATEGI**: **HIGH RISK - MOMENTUM PLAY** (Manfaatkan euforia listing perdana & bonus waran; pasang Trailing Stop bertingkat -5%, -7%, -9%)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Lalu lanjutkan dengan rincian data terstruktur:
-1. **Profil Emiten, Sektor & Kompetitor**
-2. **Rincian Penawaran IPO (Rentang Harga Rp/lembar & Rp/lot, Jumlah Lot Ditawarkan, Porsi Publik %, Target Dana IPO, & Bonus Waran)**
-3. **Penggunaan Dana Hasil IPO & Catatan Risiko Fundamental** (misal porsi bayar utang vs modal kerja)
-4. **Bedah Underwriter (UW) & Track Record Historisnya** (Sebutkan kode broker seperti HP, MG, TP beserta histori saham multi-ARA yang pernah dikawalnya)
-5. **Simulasi Penjatahan e-IPO (Pooling Allotment 1:1)** & Estimasi Lot per SID berdasarkan jumlah antrean
-6. **Rekomendasi Pesanan Sesuai Uang Dingin & Saldo Pengguna di FinGuard**`;
+- Golongan I (<= Rp250 Miliar): Pooling Ritel min. 15% (naik s/d 25% jika oversubscribed >25x)
+- Golongan II (Rp250 M - Rp500 M): Pooling Ritel 15% - 20%
+- Golongan III (Rp500 M - Rp1 Triliun): Pooling Ritel 10% - 20%
+- Golongan IV (> Rp1 Triliun): Pooling Ritel min. 2,5% - 10%
+- Pembagian Jatah Ritel: Rasio 1:1 (50% Ritel Non-Besar <Rp100 juta : 50% Ritel Besar >=Rp100 juta).`;
 }

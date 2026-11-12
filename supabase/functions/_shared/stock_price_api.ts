@@ -41,29 +41,60 @@ const STOP_WORDS = new Set([
   "MACD", "BEIS", "LIVE", "MORE", "ONLY", "JUST", "WHAT", "WHEN", "HERE", "THAT",
   "THIS", "WITH", "FROM", "HAVE", "WILL", "BEEN", "SOME", "TIME", "BACK", "LIKE",
   "WANT", "NEED", "ATUR", "IKUT", "SELA", "KALA", "MAKS", "MINI", "BAWA", "DULU",
-  "PULA", "KINI", "SEGI", "SUDA", "MASI", "HARU", "BANY", "BIAR", "TUTU"
+  "PULA", "KINI", "SEGI", "SUDA", "MASI", "HARU", "BANY", "BIAR", "TUTU",
+  // Additional common Indonesian words that must NEVER be mistaken for IPO/stock tickers
+  "SISA", "HOLA", "WKWK", "MERE", "TBK", "PERS", "BUKA", "NIAT", "LIAT", "LIHA",
+  "MAKSUD", "TAHUN", "TAHU", "CARI", "BUAT", "KAYA", "GAYA", "SAMA", "BISA"
 ]);
 
-// Words that are both common Indonesian words AND real IDX tickers — only match when preceded by saham/emiten/ipo/kode/ticker or written ALL-CAPS when unambiguous
+// Words that are both common Indonesian/English dictionary or company-name words AND real IDX tickers —
+// ONLY match when written strictly ALL-CAPS in ticker context OR explicitly preceded by saham/emiten/ipo/kode/ticker!
 const AMBIGUOUS_TICKERS = new Set([
-  "ANDA", "BELI", "BUKA", "BACA", "SATU", "DUA", "TIGA", "UANG", "DANA", "KOTA", "BALI", "JAWA", "BUMI", "DEWA", "RAJA", "CUAN", "EMAS", "RATU", "GOLF", "WIFI", "FILM", "BANK", "LIFE", "HOME", "CARE", "FOOD", "GOOD", "FAST", "SAFE", "TRUE", "NICE", "BEST", "STAR", "MEGA", "DAYA", "MAIN"
+  "ANDA", "BELI", "BUKA", "BACA", "SATU", "DUA", "TIGA", "UANG", "DANA", "KOTA",
+  "BALI", "JAWA", "BUMI", "DEWA", "RAJA", "CUAN", "EMAS", "RATU", "GOLF", "WIFI",
+  "FILM", "BANK", "LIFE", "HOME", "CARE", "FOOD", "GOOD", "FAST", "SAFE", "TRUE",
+  "NICE", "BEST", "STAR", "MEGA", "DAYA", "MAIN", "AGRO", "MINA", "TRUS", "NUSA",
+  "PURI", "SARI", "JAYA", "ROTI", "HERO", "CITY", "GOLD", "PACK", "SOLA", "BOAT",
+  "INDO", "ASIA", "MATA"
 ]);
 
-// Tickers that can be matched directly even without "saham" prefix because investors type them directly in uppercase
+// Tickers that can be matched directly even without "saham" prefix ONLY if written ALL-CAPS
 const UNAMBIGUOUS_POPULAR_TICKERS = new Set(["DEWA", "BUMI", "RAJA", "RATU"]);
 
 const KNOWN_MARKET_TICKERS = new Set([
   // Top IDX Banking & Financials
   "BBCA", "BBRI", "BMRI", "BBNI", "BRIS", "ARTO", "BBTN", "BNGA", "BDMN", "NISP", "PNBN", "BJBR", "BJTM", "BBYB", "BTPS", "MEGA", "AGRO", "BBKP", "BBHI", "BMAS",
   // Top IDX Energy, Mining, Oil & Commodities
-  "DEWA", "ADRO", "ANTM", "PTBA", "ITMG", "PGAS", "MDKA", "INCO", "MEDC", "BUMI", "BRMS", "ENRG", "HRUM", "INDY", "ELSA", "AKRA", "PGEO", "NCKL", "MBMA", "CUAN", "BREN", "TPIA", "BRPT", "DOID", "RAJA", "PTRO", "TOBA", "MBAP", "BSSR", "GEMS", "KKGI", "MYOH", "PSAB", "ARCI", "AMMN", "emas", "EMAS",
-  // Top IDX Consumer, Telco, Tech, Property, Healthcare & Infra
-  "TLKM", "ASII", "GOTO", "UNVR", "ICBP", "INDF", "AMRT", "KLBF", "SIDO", "MYOR", "CPIN", "JPFA", "ACES", "MAPI", "ERAA", "EXCL", "ISAT", "JSMR", "SMGR", "INTP", "BSDE", "CTRA", "PWON", "SMRA", "HEAL", "MIKA", "SILO", "EMTK", "SCMA", "MNCN", "BUKA", "BELI", "WIFI", "CLEO", "ULTJ", "CMRY", "AVIA", "TAPG", "LSIP", "AALI", "SSMS", "DSNG", "INKP", "TKIM",
-  // Shipping, Logistics & High-Beta / Recent IPO Tickers
-  "ASSA", "SMDR", "TMAS", "NELY", "HAIS", "WBSA", "ANDA", "JELI", "EMMI", "SWAP", "PRDL", "BACH", "RANS", "RATU", "CBDK", "YUPI", "HGII", "INET", "KPIG", "MINA", "PACK", "SOLA", "GOLF", "BDKR", "PDPP", "TGUK", "IKPM", "DAAZ", "BOAT", "AADI",
+  "DEWA", "ADRO", "ANTM", "PTBA", "ITMG", "PGAS", "MDKA", "INCO", "MEDC", "BUMI", "BRMS", "ENRG", "HRUM", "INDY", "ELSA", "AKRA", "PGEO", "NCKL", "MBMA", "CUAN", "BREN", "TPIA", "BRPT", "DOID", "RAJA", "PTRO", "TOBA", "MBAP", "BSSR", "GEMS", "KKGI", "MYOH", "PSAB", "ARCI", "AMMN", "EMAS",
+  // Top IDX Consumer, Telco, Tech, Property, Healthcare, Aquaculture & Infra
+  "TLKM", "ASII", "GOTO", "UNVR", "ICBP", "INDF", "AMRT", "KLBF", "SIDO", "MYOR", "CPIN", "JPFA", "ACES", "MAPI", "ERAA", "EXCL", "ISAT", "JSMR", "SMGR", "INTP", "BSDE", "CTRA", "PWON", "SMRA", "HEAL", "MIKA", "SILO", "EMTK", "SCMA", "MNCN", "BUKA", "BELI", "WIFI", "CLEO", "ULTJ", "CMRY", "AVIA", "TAPG", "LSIP", "AALI", "SSMS", "DSNG", "INKP", "TKIM", "UDNG",
+  // Shipping, Logistics & High-Beta IDX Tickers
+  "ASSA", "SMDR", "TMAS", "NELY", "HAIS", "CBDK", "YUPI", "HGII", "INET", "KPIG", "MINA", "PACK", "SOLA", "GOLF", "BDKR", "PDPP", "TGUK", "IKPM", "DAAZ", "BOAT", "AADI", "TRUS",
   // Top US / Global Tickers
   "TSLA", "AAPL", "NVDA", "MSFT", "AMZN", "GOOG", "GOOGL", "META", "NFLX", "AMD", "INTC", "BABA", "UBER", "COIN", "PLTR"
 ]);
+
+/**
+ * Extracts explicit Indonesian company names (e.g. "PT Agro Bahari Nusantara Tbk")
+ * so the caller can resolve the official ticker (UDNG) rather than mis-matching words inside the company name ("Agro" -> AGRO).
+ */
+export function extractCompanyNamesFromText(text: string): string[] {
+  if (!text) return [];
+  const matches = new Set<string>();
+  const ptTbkRegex = /\bPT\.?\s+[A-Za-z0-9][A-Za-z0-9\s.&'-]{2,60}?\s+Tbk\b/gi;
+  for (const m of text.matchAll(ptTbkRegex)) {
+    const cleaned = m[0].replace(/\s+/g, " ").trim();
+    if (cleaned.length >= 6) matches.add(cleaned);
+  }
+  if (matches.size === 0) {
+    const ptNoTbkRegex = /\bPT\.?\s+(?:[A-Z][a-zA-Z0-9.&'-]+\s+){1,5}[A-Z][a-zA-Z0-9.&'-]+\b/g;
+    for (const m of text.matchAll(ptNoTbkRegex)) {
+      const cleaned = m[0].replace(/\s+/g, " ").trim();
+      if (cleaned.length >= 8) matches.add(cleaned);
+    }
+  }
+  return Array.from(matches).slice(0, 3);
+}
 
 /**
  * Helper to extract tickers from a single text string
@@ -76,56 +107,65 @@ function extractFromSingleText(
   if (!text) return [];
   const result = new Set<string>();
 
-  // 1. Highest priority: Explicitly prefixed tickers (e.g. "ipo ANDA", "saham DEWA", "emiten WBSA", "kode BELI", "e-ipo ANDA")
+  // Mask full company names ("PT Agro Bahari Nusantara Tbk") before tokenizing so
+  // Title-Case words inside a company name ("Agro") are NEVER confused for unrelated tickers (AGRO = Bank Raya).
+  const sanitizedForTokens = text
+    .replace(/\bPT\.?\s+[A-Za-z0-9][A-Za-z0-9\s.&'-]{2,60}?\s+Tbk\b/gi, " ")
+    .replace(/\bPT\.?\s+(?:[A-Z][a-zA-Z0-9.&'-]+\s+){1,5}[A-Z][a-zA-Z0-9.&'-]+\b/g, " ");
+
+  // 1. Highest priority: Explicitly prefixed tickers (e.g. "ipo UDNG", "saham DEWA", "kode BELI", "e-ipo BREN")
   const explicitRegex = /\b(?:saham|sahan|emiten|ipo|e-ipo|eipo|ticker|kode)\s+([a-zA-Z]{4})\b/gi;
-  for (const match of text.matchAll(explicitRegex)) {
+  for (const match of sanitizedForTokens.matchAll(explicitRegex)) {
     const candidate = match[1].toUpperCase();
-    // Avoid "saham yang", "saham itu", "saham ini", "saham apa", "saham dari"
-    if (!["YANG", "DARI", "UNTUK", "PADA", "SAYA", "KAMU", "BISA", "LAGI", "BARU", "MANA", "SAJA", "TADI"].includes(candidate)) {
+    if (!STOP_WORDS.has(candidate)) {
       result.add(candidate);
     }
   }
 
-  // Also check "analisa/analisis/cek/kalau/kalo [TICKER]" where TICKER is in uppercase or known
+  // Also check "analisa/analisis/cek/kalau/kalo [TICKER]" where TICKER is written in uppercase or unambiguous known ticker
   const actionRegex = /\b(?:analisa|analisis|cek|kalau|kalo|prospek|broker|harga|tentang)\s+(?:ipo\s+|saham\s+|sahan\s+|emiten\s+)?([a-zA-Z]{4})\b/gi;
-  for (const match of text.matchAll(actionRegex)) {
+  for (const match of sanitizedForTokens.matchAll(actionRegex)) {
     const rawWord = match[1];
     const candidate = rawWord.toUpperCase();
-    // If the word is "ANDA", only accept if it was written in all-caps "ANDA" or after ipo/saham
-    if (candidate === "ANDA" && rawWord !== "ANDA") continue;
-    if (!STOP_WORDS.has(candidate) || KNOWN_MARKET_TICKERS.has(candidate)) {
-      if (!["YANG", "DARI", "SAYA", "KAMU", "BISA", "LAGI", "SAJA", "TADI", "CUMA", "TAHU", "JADI"].includes(candidate)) {
-        result.add(candidate);
-      }
+    if (STOP_WORDS.has(candidate)) continue;
+    const isAllCaps = rawWord === candidate;
+    if ((AMBIGUOUS_TICKERS.has(candidate) || candidate === "ANDA") && !isAllCaps) continue;
+    if (isAllCaps || KNOWN_MARKET_TICKERS.has(candidate)) {
+      result.add(candidate);
     }
   }
 
-  // 2. Tokenize words cleanly
-  const rawTokens = text
+  // 2. Tokenize words cleanly (NEVER accept Title-Case/lowercase ambiguous company words like "Agro" as a ticker)
+  const rawTokens = sanitizedForTokens
     .split(/[\s,/?!.;:()[\]"']+/)
     .map((w) => w.replace(/[^A-Za-z0-9.]/g, ""))
     .filter((w) => w.length >= 2);
 
   for (const rawToken of rawTokens) {
-    const clean = rawToken.toUpperCase().replace(/\.JK$/i, "");
+    const stripped = rawToken.replace(/\.JK$/i, "");
+    const clean = stripped.toUpperCase();
+    if (STOP_WORDS.has(clean)) continue;
     if (localSet.has(clean) || KNOWN_MARKET_TICKERS.has(clean)) {
-      if (AMBIGUOUS_TICKERS.has(clean) && !UNAMBIGUOUS_POPULAR_TICKERS.has(clean)) {
-        // For ambiguous words like ANDA, BELI, BUKA, BACA, require either ALL-CAPS in message or explicit saham/ipo prefix
-        const isAllCapsInOriginal = rawToken === clean && /[A-Z]{4}/.test(rawToken);
-        const hasPrefix = new RegExp(`(?:saham|sahan|emiten|ipo|e-ipo|eipo|kode|ticker)\\s+${clean}\\b`, "i").test(text);
-        if (!isAllCapsInOriginal && !hasPrefix) {
-          continue;
+      const isAllCapsInOriginal = stripped === clean && /^[A-Z]{4}$/.test(stripped);
+      const hasPrefix = new RegExp(`(?:saham|sahan|emiten|ipo|e-ipo|eipo|kode|ticker)\\s+${clean}\\b`, "i").test(sanitizedForTokens);
+      // Require ALL-CAPS or explicit ticker keyword prefix whenever token is ambiguous or mixed-case sentence word
+      if (AMBIGUOUS_TICKERS.has(clean)) {
+        if (!isAllCapsInOriginal && !(hasPrefix && !UNAMBIGUOUS_POPULAR_TICKERS.has(clean))) {
+          if (!hasPrefix) continue;
         }
+      } else if (!isAllCapsInOriginal && !hasPrefix && !hasContext) {
+        continue;
       }
       result.add(clean);
     }
   }
 
-  // 3. Generic 4-letter token fallback ONLY for uppercase tickers (prevents lowercase verbs like "hold", "main", "area" masquerading as tickers)
+  // 3. Generic 4-letter token fallback ONLY for explicit ALL-CAPS tickers
   if (hasContext && result.size === 0) {
     for (const rawToken of rawTokens) {
-      const clean = rawToken.toUpperCase().replace(/\.JK$/i, "");
-      const isAllCaps = rawToken === clean;
+      const stripped = rawToken.replace(/\.JK$/i, "");
+      const clean = stripped.toUpperCase();
+      const isAllCaps = stripped === clean;
       if (
         isAllCaps &&
         clean.length === 4 &&
@@ -181,7 +221,15 @@ export function extractStockTickers(
       message
     );
 
-  if (isFollowUpStockQuestion && Array.isArray(recentHistory) && recentHistory.length > 0) {
+  // If user explicitly named a company (e.g. "PT Agro Bahari Nusantara Tbk"), do not overwrite with an unrelated old ticker from history.
+  const hasExplicitCompanyName = extractCompanyNamesFromText(message).length > 0;
+
+  if (
+    !hasExplicitCompanyName &&
+    isFollowUpStockQuestion &&
+    Array.isArray(recentHistory) &&
+    recentHistory.length > 0
+  ) {
     // Traverse history from newest to oldest, enabling ALL-CAPS ticker extraction (e.g. TRUS)
     for (let i = recentHistory.length - 1; i >= 0; i--) {
       const histContent = String(recentHistory[i]?.content || "");

@@ -168,7 +168,13 @@ function isInitialSeedContributionNote(note: string): boolean {
   );
 }
 
-export async function getUserFinancialContext(supabaseClient: any, userId: string, clientDate?: string): Promise<UserFinancialContext> {
+export async function getUserFinancialContext(
+  supabaseClient: any,
+  userId: string,
+  clientDate?: string,
+  options?: { includeStockSignals?: boolean },
+): Promise<UserFinancialContext> {
+  const includeStockSignals = options?.includeStockSignals === true;
   let todayStr: string;
   let yesterdayStr: string;
   let currentYear: number;
@@ -261,12 +267,14 @@ export async function getUserFinancialContext(supabaseClient: any, userId: strin
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(200),
-    // 9. Stock signals (technical alerts, watchlist, RSI, MA, confidence)
-    supabaseClient
-      .from("stock_signals")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(20),
+    // 9. Stock signals (ONLY when explicitly requested by non-Coach callers; Coach researches live market independently)
+    includeStockSignals
+      ? supabaseClient
+          .from("stock_signals")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(20)
+      : Promise.resolve({ data: [] }),
     // 10. User preferences (reminder, alerts, dark mode, currency)
     supabaseClient
       .from("user_preferences")
@@ -739,5 +747,6 @@ export {
   normalizeTicker,
   fetchMarketSentimentAndMacroNews,
   fetchIpoStockIntelligence,
+  runLiveStockAndMarketResearch,
 } from "./stock_on_demand.ts";
-export type { OnDemandStockAnalysis } from "./stock_on_demand.ts";
+export type { OnDemandStockAnalysis, LiveStockResearchResult } from "./stock_on_demand.ts";

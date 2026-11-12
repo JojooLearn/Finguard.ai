@@ -181,6 +181,112 @@ export async function callGemini({
   throw new ApiError(`All Gemini models failed: ${lastError}`, 502, "AI_GATEWAY_ERROR");
 }
 
+export interface GeminiGoogleSearchResult {
+  text: string;
+  sources: Array<{ title: string; uri: string }>;
+}
+
+/**
+ * Runs a live Google Search-grounded Gemini query (`tools: [{ google_search: {} }]`)
+ * to research real-time IDX/BEI tickers, company names (e.g. "PT Agro Bahari Nusantara Tbk" -> UDNG),
+ * current e-IPO pipeline status, and verified market news without hallucinating non-existent tickers.
+ */
+export async function callGeminiWithGoogleSearch({
+  prompt,
+  systemInstruction,
+  temperature = 0.1,
+  timeoutMs = 12000,
+  maxOutputTokens = 1024,
+}: {
+  prompt: string;
+  systemInstruction?: string;
+  temperature?: number;
+  timeoutMs?: number;
+  maxOutputTokens?: number;
+}): Promise<GeminiGoogleSearchResult> {
+  const apiKey = Deno.env.get("GEMINI_API_KEY");
+  if (!apiKey || !prompt.trim()) {
+    return { text: "", sources: [] };
+  }
+
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
+  const deadline = Date.now() + timeoutMs;
+
+  for (const model of models) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs < 1500) break;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remainingMs);
+
+    try {
+      const body: Record<string, unknown> = {
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: {
+          temperature,
+          maxOutputTokens,
+        },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+        ],
+      };
+
+      if (systemInstruction && systemInstruction.trim().length > 0) {
+        body.systemInstruction = { parts: [{ text: systemInstruction }] };
+      }
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const errSnippet = (await res.text()).slice(0, 160);
+        console.warn(`[gemini-search] ${model} HTTP ${res.status}: ${errSnippet}`);
+        continue;
+      }
+
+      const json = await res.json();
+      const candidate = json.candidates?.[0];
+      const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+      const text = parts
+        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+        .join("\n")
+        .trim();
+
+      const chunks = candidate?.groundingMetadata?.groundingChunks || [];
+      const sources: Array<{ title: string; uri: string }> = [];
+      for (const ch of chunks) {
+        const web = ch?.web;
+        if (web?.uri) {
+          sources.push({
+            title: String(web.title || web.uri).trim(),
+            uri: String(web.uri).trim(),
+          });
+        }
+      }
+
+      if (text.length > 0) {
+        return { text, sources: sources.slice(0, 5) };
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[gemini-search] ${model} error: ${msg}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return { text: "", sources: [] };
+}
+
 /**
  * Wraps raw 16-bit mono PCM audio (e.g. 24000 Hz from Gemini TTS / AUDIO modality)
  * into a standard 44-byte RIFF WAV container encoded as Base64 so just_audio can stream it in-memory.

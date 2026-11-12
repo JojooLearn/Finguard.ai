@@ -15,9 +15,14 @@ import {
   formatOnDemandPromptContext,
   fetchMarketSentimentAndMacroNews,
   fetchIpoStockIntelligence,
+  runLiveStockAndMarketResearch,
   OnDemandStockAnalysis,
 } from "../_shared/financial_context.ts";
-import { extractStockTickers, extractStockTicker } from "../_shared/stock_price_api.ts";
+import {
+  extractStockTickers,
+  extractStockTicker,
+  extractCompanyNamesFromText,
+} from "../_shared/stock_price_api.ts";
 import { sendPushNotification } from "../_shared/onesignal.ts";
 
 const STRUCTURED_EXTRACTION_SCHEMA = {
@@ -141,7 +146,7 @@ async function syncConversationTitleIfPlaceholder(
       .from("chat_conversations")
       .update(updatePayload)
       .eq("id", conversationId);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 serve(async (req) => {
@@ -619,112 +624,133 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
     }
 
     const initialCandidateTickers = extractStockTickers(message, [], historyArray);
+    const companyNamesInMessage = extractCompanyNamesFromText(message);
     const isAffordableStockQuery =
       /(?:murah|receh|terjangkau|kantong|modal\s*kecil|dibawah|di\s*bawah|lapis\s*dua|second\s*liner|lainnya|yang\s*lain)/i.test(
         message,
       ) && /(?:saham|emiten|lot)/i.test(message);
     const isGeneralStockRecommendationQuery =
       initialCandidateTickers.length === 0 &&
+      companyNamesInMessage.length === 0 &&
       (isAffordableStockQuery ||
-        /(?:rekomendasi|rekomen|saran|pilihan|cocok|bagus|prospek|beli|cari)\s+.*(?:saham|emiten|investasi)|(?:saham|emiten)\s+.*(?:rekomendasi|rekomen|saran|cocok|bagus|apa|prospek|murah|lain)/i.test(
+        /(?:rekomendasi|rekomen|saran|pilihan|cocok|bagus|prospek|beli|cari|cek|gimana|bagaimana|info|update|pantau)\s+.*(?:saham|sahan|emiten|investasi|bursa|market|pasar\s*modal)|(?:saham|sahan|emiten|bursa)\s+.*(?:rekomendasi|rekomen|saran|cocok|bagus|apa|prospek|murah|lain|hari\s*ini|bro|sekarang)/i.test(
           message,
         ));
 
-    // Detect IPO stock analysis queries (e.g. "analisa saham IPO ANDA", "analisa ipo WBSA", "gimana prospek IPO", "penjatahan e-IPO", "underwriter MG/HP")
-    const knownIpoPipelineTickers = new Set(["ANDA", "WBSA", "JELI", "EMMI", "SWAP", "PRDL", "BACH", "RANS"]);
-    const hasIpoTicker = initialCandidateTickers.some((t) => knownIpoPipelineTickers.has(t));
-    const isIpoQuery =
-      hasIpoTicker ||
-      /\b(ipo|e-ipo|eipo|penjatahan|allotment|underwriter|uw|prospektus|bookbuilding|offering|listing\s+perdana|saham\s+perdana|wbsa|jeli|emmi)\b/i.test(message);
+    const recentTextJoined = historyArray
+      .slice(-2)
+      .map((h) => String(h?.content || ""))
+      .join(" ");
+    const isFollowUpFromStockTurn =
+      historyArray.length > 0 &&
+      /\b(?:saham|emiten|ipo|ihsg|bei|idx|lot|trailing\s*stop|support|resistance|tbk)\b/i.test(
+        recentTextJoined,
+      ) &&
+      /\b(?:maksud|bukan|bukannya|tahun\s*kemarin|keliru|salah|cek|strategi|buy|ts|tp|hold|itu|lain|lainnya)\b/i.test(
+        message,
+      );
 
-    // Detect Market Sentiment, Viral Stocks, MSCI Rebalancing, Broker Flow, Order Book, or Macro News queries
-    // Lazy-loaded ONLY when user explicitly asks about stocks/bursa/market sentiment
+    // Detect IPO stock analysis queries ONLY from explicit IPO keywords or follow-up IPO discussions (no stale hardcoded ticker list)
+    const isIpoQuery =
+      /\b(ipo|e-ipo|eipo|penjatahan|allotment|underwriter|uw|prospektus|bookbuilding|offering|listing\s+perdana|saham\s+perdana)\b/i.test(
+        message,
+      );
+
+    // Detect Market Sentiment, Viral Stocks, MSCI Rebalancing, Broker Flow, Order Book, Company (Tbk), or Macro News queries
     const isMarketNewsQuery =
       isGeneralStockRecommendationQuery ||
       initialCandidateTickers.length > 0 ||
-      /\b(ihsg|msci|ftse|bandarmologi|order\s*book|haka|haki|ara|arb|dividen|bi\s*rate|inflasi|saham|sahan|bursa|emiten)\b/i.test(message);
+      companyNamesInMessage.length > 0 ||
+      isFollowUpFromStockTurn ||
+      isIpoQuery ||
+      /\b(ihsg|msci|ftse|bandarmologi|order\s*book|haka|haki|ara|arb|dividen|bi\s*rate|inflasi|saham|sahan|bursa|emiten|tbk)\b/i.test(
+        message,
+      );
 
-    // For general recommendation queries, fetch live On-Demand data for curated IDX leaders plus affordable liquid stocks
-    const tickersToFetchOnDemand = initialCandidateTickers.length > 0
-      ? initialCandidateTickers
-      : isAffordableStockQuery
-        ? ["SIDO", "ELSA", "BRMS", "ACES"]
-        : isGeneralStockRecommendationQuery
-          ? ["BBRI", "TLKM", "SIDO", "ELSA"]
-          : [];
+    const isStockQueryScope =
+      isMarketNewsQuery ||
+      isIpoQuery ||
+      initialCandidateTickers.length > 0 ||
+      companyNamesInMessage.length > 0 ||
+      isFollowUpFromStockTurn ||
+      isGeneralStockRecommendationQuery;
 
-    const ipoQueryInput =
-      initialCandidateTickers.length > 0 && !message.toUpperCase().includes(initialCandidateTickers[0])
-        ? `${message} (Emiten: ${initialCandidateTickers[0]})`
-        : message;
+    // Fetch live Yahoo Finance directly for explicitly detected tickers (never read stock_signals DB for Coach!)
+    const tickersToFetchInitially = [...initialCandidateTickers];
 
-    let [finContext, initialOnDemandResults, marketNewsPromptSection, ipoPromptSection] = await Promise.all([
-      getUserFinancialContext(supabaseClient, user.id, client_date),
-      tickersToFetchOnDemand.length > 0
-        ? Promise.all(tickersToFetchOnDemand.map((t) => fetchOnDemandStockAnalysis(t)))
-        : Promise.resolve([] as OnDemandStockAnalysis[]),
-      isMarketNewsQuery ? fetchMarketSentimentAndMacroNews(message) : Promise.resolve(""),
-      isIpoQuery ? fetchIpoStockIntelligence(ipoQueryInput) : Promise.resolve(""),
-    ]);
+    // Compute WIB date for live search grounding prompt
+    const wibTodayStr =
+      client_date && /^\d{4}-\d{2}-\d{2}$/.test(client_date)
+        ? client_date
+        : new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-    // If any queried ticker returned price === 0 on Yahoo Finance (unlisted / upcoming e-IPO), automatically fetch IPO Intelligence as fallback!
-    if (!ipoPromptSection && initialOnDemandResults.some((r) => !r.isSuccess || r.price === 0)) {
-      const unlistedTicker = initialOnDemandResults.find((r) => !r.isSuccess || r.price === 0)?.ticker || "";
+    let [finContext, initialOnDemandResults, liveResearchResult, marketNewsPromptSection, ipoPromptSection] =
+      await Promise.all([
+        getUserFinancialContext(supabaseClient, user.id, client_date, {
+          includeStockSignals: false,
+        }),
+        tickersToFetchInitially.length > 0
+          ? Promise.all(tickersToFetchInitially.map((t) => fetchOnDemandStockAnalysis(t)))
+          : Promise.resolve([] as OnDemandStockAnalysis[]),
+        isStockQueryScope
+          ? runLiveStockAndMarketResearch({
+              message,
+              recentHistory: historyArray,
+              companyNames: companyNamesInMessage,
+              explicitTickers: initialCandidateTickers,
+              isIpoQuery,
+              todayStr: wibTodayStr,
+            })
+          : Promise.resolve({ researchPromptSection: "", discoveredTickers: [], sources: [] }),
+        isMarketNewsQuery ? fetchMarketSentimentAndMacroNews(message) : Promise.resolve(""),
+        isIpoQuery ? fetchIpoStockIntelligence(message) : Promise.resolve(""),
+      ]);
+
+    // Fetch Yahoo Finance Live OHLCV + Technicals for any additional verified tickers discovered by Google Search / Company Name lookup
+    let onDemandAnalyses: OnDemandStockAnalysis[] = [...initialOnDemandResults];
+    let queriedTickers: string[] = [...tickersToFetchInitially];
+
+    const extraDiscoveredTickers = (liveResearchResult.discoveredTickers || [])
+      .filter((t) => !queriedTickers.includes(t))
+      .slice(0, 4);
+
+    if (extraDiscoveredTickers.length > 0) {
+      const extraAnalyses = await Promise.all(
+        extraDiscoveredTickers.map((t) => fetchOnDemandStockAnalysis(t)),
+      );
+      queriedTickers = [...queriedTickers, ...extraDiscoveredTickers];
+      onDemandAnalyses = [...onDemandAnalyses, ...extraAnalyses];
+    } else if (isAffordableStockQuery && queriedTickers.length === 0) {
+      // Only if live search didn't return discovered tickers for an affordable stock request, verify liquid IDX affordable tickers live
+      const fallbackAffordable = ["SIDO", "ELSA", "BRMS", "ACES"];
+      const affordableAnalyses = await Promise.all(
+        fallbackAffordable.map((t) => fetchOnDemandStockAnalysis(t)),
+      );
+      queriedTickers = fallbackAffordable;
+      onDemandAnalyses = affordableAnalyses;
+    } else if (isGeneralStockRecommendationQuery && queriedTickers.length === 0) {
+      const fallbackLeaders = ["BBRI", "TLKM", "BBCA", "SIDO"];
+      const leaderAnalyses = await Promise.all(
+        fallbackLeaders.map((t) => fetchOnDemandStockAnalysis(t)),
+      );
+      queriedTickers = fallbackLeaders;
+      onDemandAnalyses = leaderAnalyses;
+    }
+
+    // If any queried ticker returned price === 0 on Yahoo Finance and IPO search wasn't run yet, run live IPO check
+    if (!ipoPromptSection && onDemandAnalyses.some((r) => !r.isSuccess || r.price === 0)) {
+      const unlistedTicker =
+        onDemandAnalyses.find((r) => !r.isSuccess || r.price === 0)?.ticker || "";
       if (unlistedTicker) {
         ipoPromptSection = await fetchIpoStockIntelligence(`IPO saham ${unlistedTicker} ${message}`);
       }
     }
 
-    let onDemandAnalyses: OnDemandStockAnalysis[] = initialOnDemandResults;
-    let queriedTickers: string[] = [...tickersToFetchOnDemand];
-
-    // If candidate ticker wasn't detected cleanly, check against active local tickers in finContext
-    if (queriedTickers.length === 0 && finContext.stockSignals && finContext.stockSignals.length > 0) {
-      const localTickers = finContext.stockSignals.map((s) => s.ticker);
-      const matchedLocal = extractStockTickers(message, localTickers, historyArray);
-      if (matchedLocal.length > 0) {
-        queriedTickers = matchedLocal;
-        onDemandAnalyses = await Promise.all(matchedLocal.map((t) => fetchOnDemandStockAnalysis(t)));
-      }
-    }
-
-    // For general opening/stock recommendation queries, ALSO enrich top active watchlist radar signals (e.g. TRUS)
-    // with full live OHLCV candles, ATR(14), Trailing Stop %, and Support/Resistance levels!
-    if (
-      isGeneralStockRecommendationQuery &&
-      finContext.stockSignals &&
-      finContext.stockSignals.length > 0
-    ) {
-      const extraRadarTickers = finContext.stockSignals
-        .filter((s) => s.isValid)
-        .map((s) => s.ticker.toUpperCase())
-        .filter((t) => !queriedTickers.includes(t))
-        .slice(0, 2);
-      if (extraRadarTickers.length > 0) {
-        const extraResults = await Promise.all(
-          extraRadarTickers.map((t) => fetchOnDemandStockAnalysis(t))
-        );
-        queriedTickers = [...extraRadarTickers, ...queriedTickers];
-        onDemandAnalyses = [...extraResults, ...onDemandAnalyses];
-      }
-    }
-
     let onDemandStockPromptSection = "";
     if (queriedTickers.length > 0 && onDemandAnalyses.length > 0) {
-      const sections: string[] = [];
-      for (const analysis of onDemandAnalyses) {
-        let sec = formatOnDemandPromptContext(analysis);
-        const localSignalForTicker = (finContext.stockSignals || []).find(
-          (s) => s.ticker.toUpperCase() === analysis.ticker.toUpperCase() && s.isValid
-        );
-        if (localSignalForTicker) {
-          sec += `\n\n[DATA SINYAL TRADINGVIEW LOKAL (PRIORITAS 1 - ${analysis.ticker})]
-Sinyal Teknis Lokal FinGuard: ${localSignalForTicker.signalType} di harga referensi Rp${localSignalForTicker.priceAtSignal.toLocaleString("id-ID")} (Timeframe: ${localSignalForTicker.timeframe}).
-Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam pantauan teknikal FinGuard"}"`;
-        }
-        sections.push(sec);
-      }
-      onDemandStockPromptSection = sections.join("\n\n---\n\n");
+      onDemandStockPromptSection = onDemandAnalyses
+        .map((analysis) => formatOnDemandPromptContext(analysis))
+        .join("\n\n---\n\n");
     }
 
     // Prefer active client strictness_level (1-5) when provided so personality switches take effect immediately,
@@ -908,28 +934,11 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
 
     const freeCash = finContext.availableFreeCash;
     const isStockRelatedQuery =
+      isStockQueryScope ||
       isMarketNewsQuery ||
       isIpoQuery ||
       queriedTickers.length > 0 ||
       isGeneralStockRecommendationQuery;
-
-    const stockSignalsSummary =
-      finContext.stockSignals && finContext.stockSignals.length > 0
-        ? isStockRelatedQuery
-          ? finContext.stockSignals
-            .map((s) => {
-              const lotPrice = s.lotPrice || s.priceAtSignal * 100;
-              const maxLotsFreeCash = freeCash > 0 ? Math.floor(freeCash / lotPrice) : 0;
-              const maxLotsLiquid = finContext.availableCash > 0 ? Math.floor(finContext.availableCash / lotPrice) : 0;
-              const rsiInfo = s.rsi != null ? ` | RSI: ${s.rsi}` : "";
-              const maInfo = s.maTrend ? ` | MA: ${s.maTrend}` : "";
-              return `  • [${s.ticker} - ${s.companyName}] Sinyal: ${s.signalType} | Harga: Rp${s.priceAtSignal.toLocaleString("id-ID")}/lembar (Rp${lotPrice.toLocaleString("id-ID")}/lot)${rsiInfo}${maInfo}
-    Prospek & Alasan: "${s.technicalSummary || s.reason}"
-    Keterjangkauan: Dari uang dingin bulanan bisa dapat ~${maxLotsFreeCash} lot (dari total saldo kas cair bisa ~${maxLotsLiquid} lot).`;
-            })
-            .join("\n")
-          : `  Watchlist aktif: ${finContext.stockSignals.map((s) => `${s.ticker}(${s.signalType} Rp${s.priceAtSignal})`).join(", ")}`
-        : "  (Belum ada data sinyal saham aktif di database)";
 
     const preferencesSummary = finContext.preferences
       ? `  • Pengingat Harian: ${finContext.preferences.dailyReminder ? "Aktif" : "Nonaktif"} (Pukul ${finContext.preferences.reminderTime} WIB)\n  • Peringatan Anggaran: ${finContext.preferences.budgetAlert ? `Aktif (Ambang Batas ${finContext.preferences.budgetAlertThreshold}%)` : "Nonaktif"}\n  • Laporan Bulanan: ${finContext.preferences.monthlyReport ? "Aktif" : "Nonaktif"}\n  • Simbol Mata Uang: ${finContext.preferences.currencySymbol}`
@@ -940,7 +949,7 @@ ${personaGuideline}
 
 ATURAN UX WRITING & FORMAT (ZERO-SLOP & ANTI-TEMPLATE KAKU):
 - JANGAN gunakan emoji berlebihan (maksimal 0-1 emoji di awal pesan). Dilarang menyematkan emoji di tiap kalimat!
-- JANGAN menjawab dengan format formulir/template kaku berlabel seperti "• Harga: ... • Alasan: ... • Keterjangkauan: ...". Sampaikan dengan gaya ngobrol analitis yang luwes, mengalir, dan cerdas selayaknya mentor/analis finansial pribadi (sesuai persona karakter aktif), tetap rapi dan nyaman dibaca di layar HP.
+- Format jawaban dengan poin-poin singkat dan rapi agar nyaman dibaca di layar HP.
 - Tulis nominal Rupiah dengan satu titik pemisah ribuan yang valid (contoh: Rp44.600, DILARANG menulis titik ganda seperti Rp44..600).
 - Gunakan bahasa santai khas anak muda/tongkrongan (lu/gue atau kamu/aku yang luwes).
 - KESINAMBUNGAN OBROLAN MULTI-TURN (WAJIB): Baca & lanjutkan topik dari pesan sebelumnya! Jika pengguna mengajukan pertanyaan lanjutan ("strategi seperti apa", "pasang buynya dimana", "pasang TS bagaimana", "hold sampai kapan atau daily saja", "yang lain saham murah apa"), WAJIB langsung menyambung konteks pesan sebelumnya menggunakan DATA TEKNIKAL LIVE & DATABASE NYATA (zona entry fraksi BEI, Trailing Stop % & harga berbasis ATR, target TP1/TP2, dan kriteria Hold vs Day-Trade), DILARANG mengabaikan konteks!
@@ -1009,11 +1018,9 @@ ${yesterdayTxList}
 9. CATATAN HISTORI TRANSAKSI DATABASE (Terbaru):
 ${txLedgerFormatted}
 
-10. DATA SINYAL SAHAM, ORDER BOOK, DOMINASI BROKER, SENTIMEN PASAR & ANALISIS IPO:
-DATA SINYAL TEKNIKAL LOKAL (TRADINGVIEW WEBHOOK / DATABASE):
-${stockSignalsSummary}
-
-${onDemandStockPromptSection || "  (Tidak ada permintaan saham on-demand spesifik saat ini)"}
+10. DATA RISET SAHAM MANDIRI LIVE (GOOGLE SEARCH LIVE, YAHOO FINANCE OHLCV, BERITA PASAR & e-IPO LIVE):
+(Catatan Sistem: Coach TIDAK mengakses tabel lokal stock_signals dan hanya memakai hasil riset web live & Yahoo Finance di bawah ini.)
+${liveResearchResult.researchPromptSection ? `${liveResearchResult.researchPromptSection}\n\n` : ""}${onDemandStockPromptSection || "  (Belum ada ticker saham spesifik terverifikasi pada konteks ini)"}
 
 ${marketNewsPromptSection ? `\n${marketNewsPromptSection}\n` : ""}
 ${ipoPromptSection ? `\n${ipoPromptSection}\n` : ""}
@@ -1124,24 +1131,28 @@ ATURAN WAJIB KLASIFIKASI INTENT:
      * JANGAN PERNAH menyatakan bahwa transaksi atau setoran "sudah dicatat" atau saldo "sudah berubah/bertambah" sebelum tercatat di database! Data baru berupa draf menunggu tombol "Simpan".
      * SAAT DITANYA SALDO DANA DARURAT / KAS SAAT INI: WAJIB merujuk HANYA pada angka real-time database di atas (Dana Darurat = Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}), DILARANG menjumlahkan draf chat dari riwayat percakapan!
 
-9. PERTANYAAN SINYAL SAHAM, ORDER BOOK, BROKER SUMMARY, SENTIMEN PASAR, MSCI & SAHAM IPO (query_stock_signal):
+9. PERTANYAAN SAHAM, CEK PASAR BURSA, NAMA PERUSAHAAN Tbk, SENTIMEN IHSG & SAHAM IPO (query_stock_signal):
 ${isStockRelatedQuery ? `   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null.
-${isGeneralStockRecommendationQuery ? `   A. JIKA PENGGUNA MENANYAKAN REKOMENDASI SAHAM ATAU SAHAM MURAH SESUAI KANTONG PENGGUNA (WAJIB ANALITIS & NATURAL):
+   - ATURAN KETAT ANTI-HALUSINASI (WAJIB DIPATUHI 100%):
+     * DILARANG KERAS mengarang, menebak, atau menyebut kode ticker saham/IPO fiktif (seperti SISA, HARI, dll.) atau mengutip emiten yang TIDAK terverifikasi di bagian 10 (Google Search Live / Yahoo Finance / e-IPO Live / Berita Pasar Live).
+     * Jika user menyebut nama perusahaan (misal "PT Agro Bahari Nusantara Tbk"), cocokkan HANYA dengan kode & fakta emiten yang benar dari hasil riset Google Search / Yahoo Finance Live (contoh: UDNG, BUKAN AGRO Bank Raya!).
+     * Jika membahas saham murah/rekomendasi/IPO dan tidak ada emiten IPO baru yang benar-benar terkonfirmasi aktif pada hasil riset Google Search & e-IPO Live hari ini, katakan apa adanya dengan jujur (jangan pernah mengarang kode IPO palsu).
+${isGeneralStockRecommendationQuery ? `   A. JIKA PENGGUNA MENANYAKAN CEK SAHAM / REKOMENDASI / SAHAM RAMAH KANTONG (BERBASIS RISET LIVE):
       * Sesuaikan dengan kondisi riil pengguna: Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Profil Risiko ${finContext.riskProfile}.
-      * PRIORITASKAN DATA SAHAM ON-DEMAND TERVERIFIKASI LIVE BURSA (${queriedTickers.join(", ")}) di atas dan padukan secara cerdas dengan sinyal teknikal lokal. Jika pengguna meminta saham yang ramah di kantong / murah, bedah saham-saham berfundamental & likuiditas bagus dari data live bursa di atas (seperti SIDO, ELSA, BRMS, ACES) beserta alasan teknikalnya (RSI, tren MA, ATR, antrean bid/support) dan jumlah lot yang pas dibeli dari uang dingin Rp${freeCash.toLocaleString("id-ID")}.
-      * GAYA PENULISAN: Jelaskan secara mengalir dan berbobot selayaknya mentor/analis saham pribadi — JANGAN menyalin format template kaku berlabel seperti "• Harga: ... • Alasan: ... • Keterjangkauan: ...".` : ""}
-${queriedTickers.length > 0 && !isIpoQuery ? `   B. JIKA PENGGUNA MENANYAKAN TICKER SPESIFIK ON-DEMAND ATAU PERTANYAAN STRATEGI LANJUTAN:
-      * DILARANG mengatakan "data saham X tidak ada di database"! Gunakan DATA SAHAM ON-DEMAND TERVERIFIKASI di atas.
-      * Jika ini pertanyaan lanjutan ("strategi seperti apa", "pasang buy dimana", "pasang TS dimana", "hold berapa lama atau daily saja"), WAJIB langsung menjawab pertanyaan strategi tersebut untuk emiten yang sedang dibahas (${queriedTickers.join(", ")}) dengan angka konkret dari PANDUAN STRATEGI & ATR:
-        1) Area & timing **Pasang Buy** saat market opening (antre buy on weakness di Support Bid fraksi BEI vs syarat konfirmasi jika opening naik; hindari kejar pucuk saat gap up > ATR!).
+      * PRIORITASKAN temuan Google Search Live & data Yahoo Finance terverifikasi (${queriedTickers.join(", ") || "sesuai hasil riset live"}) lengkap dengan harga penutupan terbaru, tanggal bursa, indikator teknikal nyata (RSI, MA, ATR), risiko, dan estimasi lot yang terjangkau dari uang dingin Rp${freeCash.toLocaleString("id-ID")}.
+      * GAYA PENULISAN: Jelaskan secara mengalir, cerdas, jujur, dan berbobot selayaknya mentor/analis saham pribadi dengan poin-poin yang ringkas dan nyaman dibaca di layar HP.` : ""}
+${queriedTickers.length > 0 && !isIpoQuery ? `   B. JIKA PENGGUNA MENANYAKAN EMITEN/TICKER SPESIFIK ATAU PERTANYAAN STRATEGI LANJUTAN:
+      * Gunakan DATA SAHAM ON-DEMAND TERVERIFIKASI YAHOO FINANCE & HASIL RISET GOOGLE SEARCH LIVE pada bagian 10 di atas.
+      * Jika ini pertanyaan lanjutan ("strategi seperti apa", "pasang buy dimana", "pasang TS dimana", "hold berapa lama atau daily saja"), WAJIB langsung menjawab strategi untuk emiten yang benar-benar dibahas (${queriedTickers.join(", ")}) dengan angka konkret dari PANDUAN STRATEGI & ATR:
+        1) Area & timing **Pasang Buy** saat market opening (antre buy on weakness di Support fraksi BEI vs konfirmasi momentum; hindari kejar pucuk saat gap up > ATR!).
         2) Cara & angka **Pasang Trailing Stop (TS)** secara tepat (% TS berbasis ATR(14) + harga trigger TS dalam Rupiah + Stop Loss keras di bawah S1/S2).
-        3) **Horizon Hold vs Daily Trade** (jelaskan kapan cukup main daily/fast swing vs kapan layak hold lebih lama selama penutupan harian di atas MA20/Support kunci).
-      * Jika permintaan analisa menyeluruh baru, buka dengan KOTAK RANGKUMAN KEPUTUSAN KUANTITATIF (Rekomendasi %, Penutupan Terakhir & 1 Lot, Target Profit & Stop Loss, Total Bid vs Offer & Top Buyer), lalu uraikan data teknikal MA5/MA20/MA50, RSI, ATR, Order Book, Broker Summary, dan Sentimen Berita.` : ""}
-${isMarketNewsQuery && queriedTickers.length === 0 && !isIpoQuery ? `   C. JIKA PENGGUNA MENANYAKAN SENTIMEN PASAR, SAHAM VIRAL, REBALANCING MSCI/FTSE, ATAU IHSG MAKRO:
-      * Gunakan data berita live di atas, bedah outlook IHSG (Support 6.000, Resistance 6.340, area 6.557 - 6.700), arus dana asing, dan katalis MSCI/FTSE.` : ""}
-${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JELI, EMMI, SWAP, dll.):
-      * Emiten tersebut adalah emiten IPO NYATA di BEI! Gunakan DATA ENGINE ANALISIS SAHAM IPO di atas.
-      * Buka dengan KOTAK RANGKUMAN RADAR IPO (Rekomendasi, Potensi Listing & Bonus Waran, Underwriter, Profil Risiko & Trailing Stop bertingkat -5%, -7%, -9%), lalu uraikan Profil & Kompetitor, Valuasi & Waran, Penggunaan Dana, Track Record UW, Strategi Exit, Simulasi Pooling e-IPO OJK/BEI (Golongan I-IV), dan Rekomendasi Alokasi Modal sesuai uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}).` : ""}` : `   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null. Berikan ringkasan watchlist saham & hitung keterjangkauan lot berdasarkan uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}).`}
+        3) **Horizon Hold vs Daily Trade** berdasarkan posisi harga vs MA20/Support kunci dan volatilitas ATR.
+      * Jika analisa emiten baru, sampaikan verifikasi nama perusahaan & kode ticker yang tepat, tanggal bursa terakhir, harga penutupan & harga 1 lot, indikasi RSI/MA/ATR, target resistance, batas risiko, serta sentimen beritanya.` : ""}
+${isMarketNewsQuery && queriedTickers.length === 0 && !isIpoQuery ? `   C. JIKA PENGGUNA MENANYAKAN KONDISI IHSG, SENTIMEN PASAR, MSCI/FTSE, ATAU SAHAM HARI INI:
+      * Gunakan HASIL RISET WEB GOOGLE SEARCH LIVE & BERITA PASAR LIVE di bagian 10 untuk membedah kondisi IHSG, isu global/MSCI, serta sektor/emiten yang benar-benar terkonfirmasi aktif di berita live tanpa mengarang ticker fiktif.` : ""}
+${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO:
+      * Gunakan HANYA fakta terverifikasi dari HASIL RISET WEB GOOGLE SEARCH LIVE & RISET LIVE e-IPO BEI di bagian 10.
+      * Jika emiten yang ditanyakan sudah lama listing di pasar sekunder (terlihat dari Google Search / Yahoo Finance Live), koreksi secara jelas beserta tanggal listing & harga live-nya. Jika benar-benar sedang dalam masa Penawaran di e-IPO, bedah rincian penawaran, underwriter, penggunaan dana, risiko, dan simulasi pooling OJK sesuai uang dingin pengguna (Rp${freeCash.toLocaleString("id-ID")}).` : ""}` : `   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null. Bantu pengguna riset pertanyaan saham mereka dan hitung keterjangkauan berdasarkan uang dingin (Rp${freeCash.toLocaleString("id-ID")}).`}
 
 10. PERCAKAPAN UMUM, SAPAAN, ATAU CHAT BEBAS (NATURAL CONVERSATION):
    Contoh: "hai", "halo", "pagi", "lagi apa?", "siapa kamu?", "tips hemat dong", "hai tod", "bacot tolol", dsb.
@@ -1186,8 +1197,8 @@ ${isIpoQuery ? `   D. JIKA PENGGUNA MENANYAKAN SAHAM IPO / e-IPO (ANDA, WBSA, JE
 - TETAP NYAMBUNG DENGAN KONTEKS: Jika user membela/menanggapi transaksi barusan (misal "ya itu buat sebulan worth it lah"), balas spesifik tentang transaksi/pos tersebut sambil tetap roasting. DILARANG mengarang hal acak seperti grup Telegram/Discord/judi!
 - OBJEKTIF ANGKA: Jika barang <= 50% Uang Dingin (Rp${freeCash.toLocaleString("id-ID")}), akui memang cukup secara hitungan sambil tetap menyindir Dana Darurat (Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}).`
       : strictness <= 2
-      ? `PERSONA WAJIB — "TEMAN SANTAI & RAMAH" (Level ${strictness}/5): Ramah, suportif, hangat (kamu/aku atau santai), tanpa kata kasar. Wajib nyambung dengan pesan & transaksi sebelumnya.`
-      : `PERSONA WAJIB — "TEMAN DISIPLIN & REALISTIS" (Level 3/5): Akrab, tegas, objektif berbasis angka tanpa menghina kasar. Wajib nyambung dengan pesan & transaksi sebelumnya.`;
+        ? `PERSONA WAJIB — "TEMAN SANTAI & RAMAH" (Level ${strictness}/5): Ramah, suportif, hangat (kamu/aku atau santai), tanpa kata kasar. Wajib nyambung dengan pesan & transaksi sebelumnya.`
+        : `PERSONA WAJIB — "TEMAN DISIPLIN & REALISTIS" (Level 3/5): Akrab, tegas, objektif berbasis angka tanpa menghina kasar. Wajib nyambung dengan pesan & transaksi sebelumnya.`;
 
     const compactRecentTxs = finContext.recentTransactions
       .slice(0, 5)
@@ -1212,7 +1223,7 @@ DATA REAL-TIME (${finContext.todayStr} WIB):
 - Profil: Income Rp${finContext.monthlyIncome.toLocaleString("id-ID")}, Kebutuhan Rp${finContext.essentialExpenses.toLocaleString("id-ID")}, Cicilan Rp${finContext.monthlyDebt.toLocaleString("id-ID")}, Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas Cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Risiko ${finContext.riskProfile}
 - Jatah Belanja: ${compactBudgets}
 - Celengan: ${compactGoals} | Cicilan: ${compactDebts}
-- 5 Transaksi Terakhir:\n${compactRecentTxs}${isStockRelatedQuery ? `\n- Watchlist Saham: ${stockSignalsSummary}` : ""}
+- 5 Transaksi Terakhir:\n${compactRecentTxs}
 
 ATURAN:
 1. Pertanyaan saldo/pengeluaran/budget/celengan/utang -> jawab presisi HANYA dari data database di atas (Dana Darurat = Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}), structured_transaction = null, needs_clarification = false.
@@ -1386,8 +1397,8 @@ PENTING: Isi "structured_transaction" dengan null jika pesan BUKAN perintah menc
       const userExplicitEmergencyDeposit =
         new RegExp(
           `(?:${depositDirectVerb})(?:\\s+[\\w.,Rp+-]+){0,10}\\s+(?:ke\\s+|untuk\\s+|buat\\s+|di\\s+|masuk\\s+(?:ke\\s+)?)?${emergencyTargetNoun}` +
-            `|(?:${depositMoveVerb})(?:\\s+[\\w.,Rp+-]+){0,10}\\s+(?:ke|untuk|buat|masuk(?:\\s+ke)?)\\s+${emergencyTargetNoun}` +
-            `|${emergencyTargetNoun}(?:\\s+[\\w.,Rp+-]+){0,5}\\s+(?:${depositDirectVerb}|ditambah|disetor|diisi)`,
+          `|(?:${depositMoveVerb})(?:\\s+[\\w.,Rp+-]+){0,10}\\s+(?:ke|untuk|buat|masuk(?:\\s+ke)?)\\s+${emergencyTargetNoun}` +
+          `|${emergencyTargetNoun}(?:\\s+[\\w.,Rp+-]+){0,5}\\s+(?:${depositDirectVerb}|ditambah|disetor|diisi)`,
           "i",
         ).test(lowerMsg) ||
         stx.funding_source === "emergency_fund_deposit" ||
