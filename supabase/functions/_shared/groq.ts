@@ -35,14 +35,12 @@ export async function callGroq({
     );
   }
 
-  // Prioritize high-TPM Indonesian-capable model first; fall back automatically on 413/429/400/404.
+  // Use qwen/qwen3.8-27b as primary model (matching project model permissions on Groq Console).
   const envModel = Deno.env.get("GROQ_MODEL")?.trim();
   const modelCandidates = Array.from(
     new Set([
       ...(envModel ? [envModel] : []),
-      "llama-3.3-70b-versatile",
       "qwen/qwen3.8-27b",
-      "llama-3.1-8b-instant",
     ])
   );
 
@@ -81,6 +79,7 @@ export async function callGroq({
     const remainingMs = deadline - Date.now();
     if (remainingMs < 1000) break;
 
+    const isThinkingModel = /^qwen\//i.test(model) || /deepseek|r1/i.test(model);
     const requestBody: Record<string, unknown> = {
       model,
       messages: payloadMessages,
@@ -88,7 +87,10 @@ export async function callGroq({
       max_tokens: maxTokens,
     };
 
-    if (jsonMode) {
+    // Reasoning/thinking models (like qwen/qwen3.8-27b) emit <think>...</think> tokens before JSON,
+    // which causes Groq's strict server-side json_object validator to fail with HTTP 400 json_validate_failed.
+    // Omit response_format for thinking models so parseStructuredCoachResponse can strip <think> and parse JSON cleanly.
+    if (jsonMode && !isThinkingModel) {
       requestBody.response_format = { type: "json_object" };
     }
 
@@ -96,7 +98,7 @@ export async function callGroq({
     const timeoutId = setTimeout(() => controller.abort(), remainingMs);
 
     try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      let res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -105,6 +107,20 @@ export async function callGroq({
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
+
+      // Fallback retry without response_format if server returns 400 json_validate_failed
+      if (!res.ok && res.status === 400 && requestBody.response_format) {
+        delete requestBody.response_format;
+        res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey.trim()}`,
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+      }
 
       if (!res.ok) {
         const errText = await res.text();

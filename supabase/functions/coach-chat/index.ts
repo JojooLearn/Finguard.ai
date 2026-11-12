@@ -619,9 +619,16 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
     }
 
     const initialCandidateTickers = extractStockTickers(message, [], historyArray);
+    const isAffordableStockQuery =
+      /(?:murah|receh|terjangkau|kantong|modal\s*kecil|dibawah|di\s*bawah|lapis\s*dua|second\s*liner|lainnya|yang\s*lain)/i.test(
+        message,
+      ) && /(?:saham|emiten|lot)/i.test(message);
     const isGeneralStockRecommendationQuery =
       initialCandidateTickers.length === 0 &&
-      /(?:rekomendasi|rekomen|saran|pilihan|cocok|bagus|prospek|beli)\s+.*(?:saham|emiten|investasi)|(?:saham|emiten)\s+.*(?:rekomendasi|rekomen|saran|cocok|bagus|apa|prospek)/i.test(message);
+      (isAffordableStockQuery ||
+        /(?:rekomendasi|rekomen|saran|pilihan|cocok|bagus|prospek|beli|cari)\s+.*(?:saham|emiten|investasi)|(?:saham|emiten)\s+.*(?:rekomendasi|rekomen|saran|cocok|bagus|apa|prospek|murah|lain)/i.test(
+          message,
+        ));
 
     // Detect IPO stock analysis queries (e.g. "analisa saham IPO ANDA", "analisa ipo WBSA", "gimana prospek IPO", "penjatahan e-IPO", "underwriter MG/HP")
     const knownIpoPipelineTickers = new Set(["ANDA", "WBSA", "JELI", "EMMI", "SWAP", "PRDL", "BACH", "RANS"]);
@@ -637,12 +644,14 @@ Kembalikan HANYA JSON murni sesuai skema berikut:
       initialCandidateTickers.length > 0 ||
       /\b(ihsg|msci|ftse|bandarmologi|order\s*book|haka|haki|ara|arb|dividen|bi\s*rate|inflasi|saham|sahan|bursa|emiten)\b/i.test(message);
 
-    // For general recommendation queries, fetch live On-Demand data for curated IDX leaders plus active watchlist signals
+    // For general recommendation queries, fetch live On-Demand data for curated IDX leaders plus affordable liquid stocks
     const tickersToFetchOnDemand = initialCandidateTickers.length > 0
       ? initialCandidateTickers
-      : isGeneralStockRecommendationQuery
-        ? ["BBNI", "BRIS", "ADRO"]
-        : [];
+      : isAffordableStockQuery
+        ? ["SIDO", "ELSA", "BRMS", "ACES"]
+        : isGeneralStockRecommendationQuery
+          ? ["BBRI", "TLKM", "SIDO", "ELSA"]
+          : [];
 
     const ipoQueryInput =
       initialCandidateTickers.length > 0 && !message.toUpperCase().includes(initialCandidateTickers[0])
@@ -929,12 +938,12 @@ Catatan Analisis: "${localSignalForTicker.analysisNotes || "Terpilih dalam panta
     const systemPrompt = `Anda adalah AI Financial Coach di FinGuard.
 ${personaGuideline}
 
-ATURAN UX WRITING & FORMAT (ZERO-SLOP):
+ATURAN UX WRITING & FORMAT (ZERO-SLOP & ANTI-TEMPLATE KAKU):
 - JANGAN gunakan emoji berlebihan (maksimal 0-1 emoji di awal pesan). Dilarang menyematkan emoji di tiap kalimat!
-- Format jawaban dengan poin-poin singkat dan rapi agar nyaman dibaca di layar HP.
+- JANGAN menjawab dengan format formulir/template kaku berlabel seperti "• Harga: ... • Alasan: ... • Keterjangkauan: ...". Sampaikan dengan gaya ngobrol analitis yang luwes, mengalir, dan cerdas selayaknya mentor/analis finansial pribadi (sesuai persona karakter aktif), tetap rapi dan nyaman dibaca di layar HP.
 - Tulis nominal Rupiah dengan satu titik pemisah ribuan yang valid (contoh: Rp44.600, DILARANG menulis titik ganda seperti Rp44..600).
 - Gunakan bahasa santai khas anak muda/tongkrongan (lu/gue atau kamu/aku yang luwes).
-- KESINAMBUNGAN OBROLAN MULTI-TURN (WAJIB): Baca & lanjutkan topik dari pesan sebelumnya! Jika pengguna mengajukan pertanyaan lanjutan ("strategi seperti apa", "pasang buynya dimana", "pasang TS bagaimana", "hold sampai kapan atau daily saja"), WAJIB langsung membedah emiten & konteks yang baru saja dibahas pada pesan sebelumnya menggunakan DATA TEKNIKAL NYATA (zona entry fraksi BEI, Trailing Stop % & harga berbasis ATR, target TP1/TP2, dan kriteria Hold vs Day-Trade), DILARANG mengabaikan konteks atau membuang topik ke saham lain!
+- KESINAMBUNGAN OBROLAN MULTI-TURN (WAJIB): Baca & lanjutkan topik dari pesan sebelumnya! Jika pengguna mengajukan pertanyaan lanjutan ("strategi seperti apa", "pasang buynya dimana", "pasang TS bagaimana", "hold sampai kapan atau daily saja", "yang lain saham murah apa"), WAJIB langsung menyambung konteks pesan sebelumnya menggunakan DATA TEKNIKAL LIVE & DATABASE NYATA (zona entry fraksi BEI, Trailing Stop % & harga berbasis ATR, target TP1/TP2, dan kriteria Hold vs Day-Trade), DILARANG mengabaikan konteks!
 - HINDARI istilah perbankan kaku ("surplus kas", "pagu anggaran", "instrumen likuid", "defisit berjalan").
 - GANTI dengan istilah ramah: "uang dingin", "sisa jatah belanja", "isi dompet/saldo", "boncos/tekor", "tabungan/celengan".
 
@@ -1117,10 +1126,10 @@ ATURAN WAJIB KLASIFIKASI INTENT:
 
 9. PERTANYAAN SINYAL SAHAM, ORDER BOOK, BROKER SUMMARY, SENTIMEN PASAR, MSCI & SAHAM IPO (query_stock_signal):
 ${isStockRelatedQuery ? `   - Set intent = "query_stock_signal", needs_clarification = false, structured_transaction = null.
-${isGeneralStockRecommendationQuery ? `   A. JIKA PENGGUNA MENANYAKAN REKOMENDASI SAHAM BERDASARKAN PEMASUKAN & DANA RIIL PENGGUNA (WAJIB HYBRID):
-      * TAMPILKAN ANGKA RIIL DARI DATABASE: Pemasukan Rp${finContext.monthlyIncome.toLocaleString("id-ID")}, Kebutuhan pokok Rp${finContext.essentialExpenses.toLocaleString("id-ID")}, Cicilan Rp${finContext.monthlyDebt.toLocaleString("id-ID")}, Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Profil Risiko ${finContext.riskProfile}.
-      * ATURAN EMAS: Dana Darurat First (minimal 3x kebutuhan = Rp${(finContext.essentialExpenses * 3).toLocaleString("id-ID")}) sebelum alokasi saham; anjurkan porsi sehat 10-20% pemasukan.
-      * GABUNGKAN Watchlist Sinyal TradingView Lokal DAN Saham Live On-Demand Bursa (BBNI, BRIS, ADRO, ICBP, GOTO, dll.) lengkap dengan perkiraan jumlah lot terjangkau (1 Lot = 100 lembar).` : ""}
+${isGeneralStockRecommendationQuery ? `   A. JIKA PENGGUNA MENANYAKAN REKOMENDASI SAHAM ATAU SAHAM MURAH SESUAI KANTONG PENGGUNA (WAJIB ANALITIS & NATURAL):
+      * Sesuaikan dengan kondisi riil pengguna: Uang Dingin Rp${freeCash.toLocaleString("id-ID")}, Kas cair Rp${finContext.availableCash.toLocaleString("id-ID")}, Dana Darurat Rp${finContext.initialEmergencyFund.toLocaleString("id-ID")}, Profil Risiko ${finContext.riskProfile}.
+      * PRIORITASKAN DATA SAHAM ON-DEMAND TERVERIFIKASI LIVE BURSA (${queriedTickers.join(", ")}) di atas dan padukan secara cerdas dengan sinyal teknikal lokal. Jika pengguna meminta saham yang ramah di kantong / murah, bedah saham-saham berfundamental & likuiditas bagus dari data live bursa di atas (seperti SIDO, ELSA, BRMS, ACES) beserta alasan teknikalnya (RSI, tren MA, ATR, antrean bid/support) dan jumlah lot yang pas dibeli dari uang dingin Rp${freeCash.toLocaleString("id-ID")}.
+      * GAYA PENULISAN: Jelaskan secara mengalir dan berbobot selayaknya mentor/analis saham pribadi — JANGAN menyalin format template kaku berlabel seperti "• Harga: ... • Alasan: ... • Keterjangkauan: ...".` : ""}
 ${queriedTickers.length > 0 && !isIpoQuery ? `   B. JIKA PENGGUNA MENANYAKAN TICKER SPESIFIK ON-DEMAND ATAU PERTANYAAN STRATEGI LANJUTAN:
       * DILARANG mengatakan "data saham X tidak ada di database"! Gunakan DATA SAHAM ON-DEMAND TERVERIFIKASI di atas.
       * Jika ini pertanyaan lanjutan ("strategi seperti apa", "pasang buy dimana", "pasang TS dimana", "hold berapa lama atau daily saja"), WAJIB langsung menjawab pertanyaan strategi tersebut untuk emiten yang sedang dibahas (${queriedTickers.join(", ")}) dengan angka konkret dari PANDUAN STRATEGI & ATR:
