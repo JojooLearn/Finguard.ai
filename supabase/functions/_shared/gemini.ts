@@ -387,10 +387,15 @@ function sanitizeTextForSpeechSynthesis(rawText: string): string {
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  if (clean.length <= 450) return clean;
-  const sliced = clean.slice(0, 450);
-  const lastBreak = Math.max(sliced.lastIndexOf("."), sliced.lastIndexOf(","));
-  return (lastBreak > 180 ? sliced.slice(0, lastBreak + 1) : sliced).trim();
+  if (clean.length <= 260) return clean;
+  const sliced = clean.slice(0, 260);
+  const lastBreak = Math.max(
+    sliced.lastIndexOf("."),
+    sliced.lastIndexOf("?"),
+    sliced.lastIndexOf("!"),
+    sliced.lastIndexOf(",")
+  );
+  return (lastBreak > 100 ? sliced.slice(0, lastBreak + 1) : sliced).trim();
 }
 
 function parseSampleRateFromMime(mimeType: string, fallback = 24000): number {
@@ -405,13 +410,14 @@ function parseSampleRateFromMime(mimeType: string, fallback = 24000): number {
 }
 
 /**
- * Generates contextual AI Voice-Out via Gemini Native TTS (`gemini-2.5-flash-preview-tts`)
+ * Generates contextual AI Voice-Out via Gemini Native TTS
  * when `request_audio === true`, matching the active Coach character's voice and style.
+ * Uses ultra-fast gemini-3.8-flash-lite-tts as primary model with generous 18s timeout.
  */
 export async function generateGeminiSpeechAudio(
   textToSpeak: string,
   strictnessOrVoice: number | string = 3,
-  timeoutMs = 7000
+  timeoutMs = 18000
 ): Promise<string | null> {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey || !textToSpeak || textToSpeak.trim().length === 0) return null;
@@ -433,6 +439,9 @@ export async function generateGeminiSpeechAudio(
   const audioModels = Array.from(
     new Set([
       ...(envTtsModel ? [envTtsModel] : []),
+      "gemini-3.8-flash-lite-tts",
+      "gemini-3.8-flash-tts",
+      "gemini-3.1-flash-tts-preview",
       "gemini-2.5-flash-preview-tts",
       "gemini-2.5-pro-preview-tts",
     ])
