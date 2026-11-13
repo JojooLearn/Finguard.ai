@@ -32,8 +32,16 @@ class ActiveDebtsPage extends StatelessWidget {
   }
 }
 
-class _ActiveDebtsView extends StatelessWidget {
+class _ActiveDebtsView extends StatefulWidget {
   const _ActiveDebtsView();
+
+  @override
+  State<_ActiveDebtsView> createState() => _ActiveDebtsViewState();
+}
+
+class _ActiveDebtsViewState extends State<_ActiveDebtsView> {
+  int _activeDebtsLimit = 10;
+  bool _showAllCompletedDebts = false;
 
   void _showAddDebtSheet(BuildContext context) {
     final nameCtrl = TextEditingController();
@@ -660,18 +668,70 @@ class _ActiveDebtsView extends StatelessWidget {
                           ],
                         ),
                       )
-                    else
-                      ...activeDebts.map((debt) => _buildDebtCard(context, debt)),
+                    else ...[
+                      ...activeDebts
+                          .take(_activeDebtsLimit)
+                          .map((debt) => _buildDebtCard(context, debt)),
+                      if (activeDebts.length > _activeDebtsLimit)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Center(
+                            child: TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _activeDebtsLimit += 10;
+                                });
+                              },
+                              icon: Icon(PhosphorIcons.caretDown(),
+                                  size: 15, color: AppColors.primary),
+                              label: Text(
+                                'Tampilkan ${activeDebts.length - _activeDebtsLimit} cicilan aktif lainnya',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
 
                     // Completed Debts Section
                     if (completedDebts.isNotEmpty) ...[
                       const SizedBox(height: 24),
-                      Text(
-                        'Riwayat Lunas (${completedDebts.length})',
-                        style: AppTypography.sectionLabel.copyWith(fontSize: 15),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Riwayat Lunas (${completedDebts.length})',
+                            style: AppTypography.sectionLabel
+                                .copyWith(fontSize: 15),
+                          ),
+                          if (completedDebts.length > 5)
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _showAllCompletedDebts =
+                                      !_showAllCompletedDebts;
+                                });
+                              },
+                              child: Text(
+                                _showAllCompletedDebts
+                                    ? 'Sembunyikan'
+                                    : 'Lihat Semua (${completedDebts.length})',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 12),
-                      ...completedDebts.map((debt) => _buildCompletedCard(context, debt)),
+                      ...(_showAllCompletedDebts
+                              ? completedDebts
+                              : completedDebts.take(5))
+                          .map((debt) => _buildCompletedCard(context, debt)),
                     ],
 
                     const SizedBox(height: 36),

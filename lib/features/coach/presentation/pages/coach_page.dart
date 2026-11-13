@@ -50,6 +50,12 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
   final ReceiptScannerService _scannerService = ReceiptScannerService();
   late final VoiceIoService _voiceIoService;
 
+  static const int _messageBatchSize = 20;
+  int _visibleMessageCount = _messageBatchSize;
+  int _currentTotalMessages = 0;
+  bool _isLoadingOlderMessages = false;
+  String? _lastTrackedConversationId;
+
   AudioPlayer? _audioPlayer;
   StreamSubscription<PlayerState>? _playerStateSub;
   String? _activePlayingMessageId;
@@ -80,6 +86,7 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
         _isTtsSpeaking = _voiceIoService.isSpeaking;
       });
     };
+    _scrollController.addListener(_onChatScroll);
     _textController.addListener(_onTextChanged);
     final cubit = context.read<CoachCubit>();
     if (cubit.state is CoachLoaded) {
@@ -96,7 +103,8 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
       _stopActiveVoiceOut();
     }
   }
@@ -202,7 +210,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
         await player.play();
         return;
       } catch (e) {
-        debugPrint('Gemini HD audio playback error (falling back to local TTS): $e');
+        debugPrint(
+          'Gemini HD audio playback error (falling back to local TTS): $e',
+        );
         if (mounted) {
           setState(() {
             _isAudioPlaying = false;
@@ -304,7 +314,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
                               Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primaryLight.withValues(alpha: 0.5),
+                                  color: AppColors.primaryLight.withValues(
+                                    alpha: 0.5,
+                                  ),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
@@ -358,7 +370,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
                               Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primaryLight.withValues(alpha: 0.5),
+                                  color: AppColors.primaryLight.withValues(
+                                    alpha: 0.5,
+                                  ),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
@@ -492,10 +506,7 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
 
       // Non-blocking background upload to Supabase Storage while AI OCR runs immediately via inline base64
       _scannerService
-          .uploadReceiptToStorage(
-            bytes: receiptBytes,
-            userId: userId,
-          )
+          .uploadReceiptToStorage(bytes: receiptBytes, userId: userId)
           .catchError((_) => storagePath);
 
       if (!mounted) return;
@@ -535,6 +546,31 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
     });
   }
 
+  void _onChatScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels <= 30 && !_isLoadingOlderMessages) {
+      if (_visibleMessageCount < _currentTotalMessages) {
+        _isLoadingOlderMessages = true;
+        final oldMaxScroll = _scrollController.position.maxScrollExtent;
+        final oldOffset = _scrollController.position.pixels;
+        setState(() {
+          _visibleMessageCount = (_visibleMessageCount + _messageBatchSize)
+              .clamp(_messageBatchSize, _currentTotalMessages);
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollController.hasClients) {
+            final newMaxScroll = _scrollController.position.maxScrollExtent;
+            final delta = newMaxScroll - oldMaxScroll;
+            if (delta > 0) {
+              _scrollController.jumpTo(oldOffset + delta);
+            }
+          }
+          _isLoadingOlderMessages = false;
+        });
+      }
+    }
+  }
+
   @override
   void deactivate() {
     _stopActiveVoiceOut();
@@ -548,6 +584,7 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
     _voiceIoService.onTtsStateChanged = null;
     _voiceIoService.stopSpeaking();
     _textController.removeListener(_onTextChanged);
+    _scrollController.removeListener(_onChatScroll);
     _playerStateSub?.cancel();
     _audioPlayer?.dispose();
     _textController.dispose();
@@ -575,411 +612,471 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
         _stopActiveVoiceOut();
       },
       child: Column(
-      children: [
-        // Top Header (finguard_desig.md 7.4)
-        Padding(
-          padding: const EdgeInsets.only(
-            left: AppSpacing.sideMargin,
-            right: AppSpacing.sideMargin,
-            top: 12,
-            bottom: 8,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      gradient: AppColors.aiAccentGradient,
-                      shape: BoxShape.circle,
-                      boxShadow: AppSpacing.glowShadow,
-                    ),
-                    child: Image.asset(
-                      coachAvatarAsset,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => Center(
-                        child: Icon(
-                          PhosphorIcons.sparkle(PhosphorIconsStyle.fill),
-                          color: Colors.white,
-                          size: 20,
+        children: [
+          // Top Header (finguard_desig.md 7.4)
+          Padding(
+            padding: const EdgeInsets.only(
+              left: AppSpacing.sideMargin,
+              right: AppSpacing.sideMargin,
+              top: 12,
+              bottom: 8,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        gradient: AppColors.aiAccentGradient,
+                        shape: BoxShape.circle,
+                        boxShadow: AppSpacing.glowShadow,
+                      ),
+                      child: Image.asset(
+                        coachAvatarAsset,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) => Center(
+                          child: Icon(
+                            PhosphorIcons.sparkle(PhosphorIconsStyle.fill),
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'AI Financial Coach',
-                        style: AppTypography.screenTitle.copyWith(fontSize: 18),
-                      ),
-                      Row(
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: AppColors.income,
-                              shape: BoxShape.circle,
-                            ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'AI Financial Coach',
+                          style: AppTypography.screenTitle.copyWith(
+                            fontSize: 18,
                           ),
-                          const SizedBox(width: 5),
-                          Text(
-                            'Database Terhubung',
-                            style: AppTypography.caption.copyWith(
-                              fontSize: 11,
-                              color: AppColors.income,
-                              fontWeight: FontWeight.w600,
+                        ),
+                        Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: AppColors.income,
+                                shape: BoxShape.circle,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  AppIconButton(
-                    icon: PhosphorIcons.plus(),
-                    onPressed: () {
-                      _stopActiveVoiceOut();
-                      context.read<CoachCubit>().startNewConversation();
-                    },
-                  ),
-                  const SizedBox(width: 10),
-                  AppIconButton(
-                    icon: PhosphorIcons.clockCounterClockwise(),
-                    onPressed: () {
-                      _stopActiveVoiceOut();
-                      context.push('/coach/history');
-                    },
-                  ),
-                ],
-              ),
-            ],
+                            const SizedBox(width: 5),
+                            Text(
+                              'Database Terhubung',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 11,
+                                color: AppColors.income,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    AppIconButton(
+                      icon: PhosphorIcons.plus(),
+                      onPressed: () {
+                        _stopActiveVoiceOut();
+                        context.read<CoachCubit>().startNewConversation();
+                      },
+                    ),
+                    const SizedBox(width: 10),
+                    AppIconButton(
+                      icon: PhosphorIcons.clockCounterClockwise(),
+                      onPressed: () {
+                        _stopActiveVoiceOut();
+                        context.push('/coach/history');
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
 
-        // Chat Message Area
-        Expanded(
-          child: BlocConsumer<CoachCubit, CoachState>(
-            listener: (context, state) {
-              if (state is CoachLoading) {
-                _initializedConfirmedSnapshot = false;
-                _knownConfirmedTxIds.clear();
-                return;
-              }
-              if (state is CoachLoaded) {
-                if (!_initializedConfirmedSnapshot) {
-                  _knownConfirmedTxIds.addAll(
-                    state.messages
-                        .where((m) => m.isConfirmed)
-                        .map((m) => m.id),
-                  );
-                  _initializedConfirmedSnapshot = true;
-                } else {
-                  ChatMessageEntity? newestConfirmedTx;
-                  for (final m in state.messages) {
-                    if (m.isConfirmed && !_knownConfirmedTxIds.contains(m.id)) {
-                      _knownConfirmedTxIds.add(m.id);
-                      if (m.structuredPayload != null &&
-                          m.structuredPayload!['amount'] != null) {
-                        newestConfirmedTx = m;
+          // Chat Message Area
+          Expanded(
+            child: BlocConsumer<CoachCubit, CoachState>(
+              listener: (context, state) {
+                if (state is CoachLoading) {
+                  _initializedConfirmedSnapshot = false;
+                  _knownConfirmedTxIds.clear();
+                  return;
+                }
+                if (state is CoachLoaded) {
+                  if (!_initializedConfirmedSnapshot) {
+                    _knownConfirmedTxIds.addAll(
+                      state.messages
+                          .where((m) => m.isConfirmed)
+                          .map((m) => m.id),
+                    );
+                    _initializedConfirmedSnapshot = true;
+                  } else {
+                    ChatMessageEntity? newestConfirmedTx;
+                    for (final m in state.messages) {
+                      if (m.isConfirmed &&
+                          !_knownConfirmedTxIds.contains(m.id)) {
+                        _knownConfirmedTxIds.add(m.id);
+                        if (m.structuredPayload != null &&
+                            m.structuredPayload!['amount'] != null) {
+                          newestConfirmedTx = m;
+                        }
+                      }
+                    }
+                    if (newestConfirmedTx != null) {
+                      final payload = newestConfirmedTx.structuredPayload!;
+                      final isEmergencyDeposit =
+                          payload['funding_source'] ==
+                              'emergency_fund_deposit' ||
+                          payload['type'] == 'goal_deposit';
+                      final isIncome =
+                          !isEmergencyDeposit && payload['type'] == 'income';
+                      final amount =
+                          (payload['amount'] as num?)?.toDouble() ?? 0.0;
+                      if (!isEmergencyDeposit && amount > 0) {
+                        _showTransactionLottiePopup(
+                          isIncome: isIncome,
+                          amount: amount,
+                          note: payload['note']?.toString(),
+                        );
                       }
                     }
                   }
-                  if (newestConfirmedTx != null) {
-                    final payload = newestConfirmedTx.structuredPayload!;
-                    final isEmergencyDeposit =
-                        payload['funding_source'] == 'emergency_fund_deposit' ||
-                        payload['type'] == 'goal_deposit';
-                    final isIncome =
-                        !isEmergencyDeposit && payload['type'] == 'income';
-                    final amount =
-                        (payload['amount'] as num?)?.toDouble() ?? 0.0;
-                    if (!isEmergencyDeposit && amount > 0) {
-                      _showTransactionLottiePopup(
-                        isIncome: isIncome,
-                        amount: amount,
-                        note: payload['note']?.toString(),
+
+                  if (state.confirmFeedbackMessage != null &&
+                      state.confirmFeedbackMessage!.isNotEmpty) {
+                    ScaffoldMessenger.of(context)
+                      ..clearSnackBars()
+                      ..showSnackBar(
+                        SnackBar(
+                          content: Text(state.confirmFeedbackMessage!),
+                          backgroundColor: AppColors.expenseRed,
+                          behavior: SnackBarBehavior.floating,
+                        ),
                       );
+                    context.read<CoachCubit>().clearConfirmFeedback();
+                  }
+                  _scrollToBottom();
+                  if (!state.isSending && state.messages.isNotEmpty) {
+                    final latest = state.messages.last;
+                    final shouldAutoSpeak =
+                        !latest.isUser &&
+                        widget.isActive &&
+                        (latest.autoSpeak || latest.hasAudio) &&
+                        _lastAutoPlayedMessageId != latest.id;
+                    if (shouldAutoSpeak) {
+                      _lastAutoPlayedMessageId = latest.id;
+                      _togglePlayMessageAudio(latest);
                     }
                   }
                 }
+              },
+              builder: (context, state) {
+                if (state is CoachLoading) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  );
+                }
 
-                if (state.confirmFeedbackMessage != null &&
-                    state.confirmFeedbackMessage!.isNotEmpty) {
-                  ScaffoldMessenger.of(context)
-                    ..clearSnackBars()
-                    ..showSnackBar(
-                      SnackBar(
-                        content: Text(state.confirmFeedbackMessage!),
-                        backgroundColor: AppColors.expenseRed,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  context.read<CoachCubit>().clearConfirmFeedback();
-                }
-                _scrollToBottom();
-                if (!state.isSending && state.messages.isNotEmpty) {
-                  final latest = state.messages.last;
-                  final shouldAutoSpeak = !latest.isUser &&
-                      widget.isActive &&
-                      (latest.autoSpeak || latest.hasAudio) &&
-                      _lastAutoPlayedMessageId != latest.id;
-                  if (shouldAutoSpeak) {
-                    _lastAutoPlayedMessageId = latest.id;
-                    _togglePlayMessageAudio(latest);
+                List<ChatMessageEntity> messages = [];
+                bool isSending = false;
+                bool isScanningReceipt = false;
+
+                if (state is CoachLoaded) {
+                  messages = state.messages;
+                  isSending = state.isSending;
+                  isScanningReceipt = state.isScanningReceipt;
+
+                  final currentConvId = messages.isNotEmpty
+                      ? messages.first.conversationId
+                      : null;
+                  if (_lastTrackedConversationId != null &&
+                      _lastTrackedConversationId != currentConvId) {
+                    _visibleMessageCount = _messageBatchSize;
                   }
+                  _lastTrackedConversationId = currentConvId;
                 }
-              }
-            },
-            builder: (context, state) {
-              if (state is CoachLoading) {
-                return const Center(
-                  child: CircularProgressIndicator(color: AppColors.primary),
+
+                _currentTotalMessages = messages.length;
+                final bool hasOlderMessages =
+                    messages.length > _visibleMessageCount;
+                final List<ChatMessageEntity> visibleMessages = hasOlderMessages
+                    ? messages.sublist(messages.length - _visibleMessageCount)
+                    : messages;
+                final int olderHeaderCount = hasOlderMessages ? 1 : 0;
+                final int typingCount = isSending ? 1 : 0;
+
+                return ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.only(
+                    left: AppSpacing.sideMargin,
+                    right: AppSpacing.sideMargin,
+                    top: 8,
+                    bottom: 12,
+                  ),
+                  physics: const BouncingScrollPhysics(),
+                  itemCount:
+                      olderHeaderCount + visibleMessages.length + typingCount,
+                  itemBuilder: (context, index) {
+                    if (hasOlderMessages && index == 0) {
+                      return _buildLoadOlderMessagesHeader(
+                        remainingCount: messages.length - _visibleMessageCount,
+                        onTap: () {
+                          setState(() {
+                            _visibleMessageCount =
+                                (_visibleMessageCount + _messageBatchSize)
+                                    .clamp(_messageBatchSize, messages.length);
+                          });
+                        },
+                      );
+                    }
+
+                    final adjustedIndex =
+                        hasOlderMessages ? index - 1 : index;
+
+                    if (adjustedIndex == visibleMessages.length && isSending) {
+                      return _buildTypingIndicator(
+                        isScanningReceipt: isScanningReceipt,
+                      );
+                    }
+                    final msg = visibleMessages[adjustedIndex];
+
+                    if (msg.isRetryable) {
+                      return _buildErrorBubble(msg);
+                    }
+
+                    if (msg.needsClarification) {
+                      return _buildClarificationBubble(msg);
+                    }
+
+                    return _buildMessageBubble(msg);
+                  },
                 );
-              }
-
-              List<ChatMessageEntity> messages = [];
-              bool isSending = false;
-              bool isScanningReceipt = false;
-
-              if (state is CoachLoaded) {
-                messages = state.messages;
-                isSending = state.isSending;
-                isScanningReceipt = state.isScanningReceipt;
-              }
-
-              return ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.only(
-                  left: AppSpacing.sideMargin,
-                  right: AppSpacing.sideMargin,
-                  top: 8,
-                  bottom: 12,
-                ),
-                physics: const BouncingScrollPhysics(),
-                itemCount: messages.length + (isSending ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (index == messages.length && isSending) {
-                    return _buildTypingIndicator(
-                      isScanningReceipt: isScanningReceipt,
-                    );
-                  }
-                  final msg = messages[index];
-
-                  if (msg.isRetryable) {
-                    return _buildErrorBubble(msg);
-                  }
-
-                  if (msg.needsClarification) {
-                    return _buildClarificationBubble(msg);
-                  }
-
-                  return _buildMessageBubble(msg);
-                },
-              );
-            },
+              },
+            ),
           ),
-        ),
 
-        // Bottom Section: Quick Suggestions (nempel tepat di atas field input) + Input Bar
-        Builder(
-          builder: (context) {
-            final keyboardOpen = widget.isKeyboardOpen ??
-                (View.of(context).viewInsets.bottom > 0 ||
-                    MediaQuery.of(context).viewInsets.bottom > 0);
-            final safeBottom = MediaQuery.of(context).padding.bottom;
-            // Inside MainScaffold (extendBody: true), safeBottom already includes
-            // FloatingNavBar height (>= 80px). Avoid double-adding 96px!
-            final bottomPadding = keyboardOpen
-                ? 8.0
-                : (safeBottom >= 80.0 ? (safeBottom + 8.0) : (safeBottom + 96.0));
+          // Bottom Section: Quick Suggestions (nempel tepat di atas field input) + Input Bar
+          Builder(
+            builder: (context) {
+              final keyboardOpen =
+                  widget.isKeyboardOpen ??
+                  (View.of(context).viewInsets.bottom > 0 ||
+                      MediaQuery.of(context).viewInsets.bottom > 0);
+              final safeBottom = MediaQuery.of(context).padding.bottom;
+              // Inside MainScaffold (extendBody: true), safeBottom already includes
+              // FloatingNavBar height (>= 80px). Avoid double-adding 96px!
+              final bottomPadding = keyboardOpen
+                  ? 8.0
+                  : (safeBottom >= 80.0
+                        ? (safeBottom + 8.0)
+                        : (safeBottom + 96.0));
 
-            return Container(
-              padding: EdgeInsets.only(
-                bottom: bottomPadding,
-                top: 6,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Receipt Image Preview
-                  if (_selectedReceiptBytes != null)
-                    _buildSelectedReceiptPreview(),
+              return Container(
+                padding: EdgeInsets.only(bottom: bottomPadding, top: 6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Receipt Image Preview
+                    if (_selectedReceiptBytes != null)
+                      _buildSelectedReceiptPreview(),
 
-                  // Quick Suggestions (nempel tepat di atas field input pesan)
-                  SizedBox(
-                    height: 36,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
+                    // Quick Suggestions (nempel tepat di atas field input pesan)
+                    SizedBox(
+                      height: 36,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sideMargin,
+                        ),
+                        physics: const BouncingScrollPhysics(),
+                        children: [
+                          _buildSuggestionChip('Catat: Nasi padang 25rb'),
+                          const SizedBox(width: 8),
+                          _buildSuggestionChip(
+                            'Sisa jatah jajan makan berapa?',
+                          ),
+                          const SizedBox(width: 8),
+                          _buildSuggestionChip('Duit gue sekarang ada berapa?'),
+                          const SizedBox(width: 8),
+                          _buildSuggestionChip(
+                            'Pengeluaran bulan ini udah berapa?',
+                          ),
+                          const SizedBox(width: 8),
+                          _buildSuggestionChip('Boleh beli HP 3 juta gak?'),
+                          const SizedBox(width: 8),
+                          _buildSuggestionChip(
+                            'Progres celengan darurat aman gak?',
+                          ),
+                          const SizedBox(width: 8),
+                          _buildSuggestionChip(
+                            'Kasih masukan dong buat dompet gue',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Input Bar
+                    Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.sideMargin,
                       ),
-                      physics: const BouncingScrollPhysics(),
-                      children: [
-                        _buildSuggestionChip('Catat: Nasi padang 25rb'),
-                        const SizedBox(width: 8),
-                        _buildSuggestionChip('Sisa jatah jajan makan berapa?'),
-                        const SizedBox(width: 8),
-                        _buildSuggestionChip('Duit gue sekarang ada berapa?'),
-                        const SizedBox(width: 8),
-                        _buildSuggestionChip('Pengeluaran bulan ini udah berapa?'),
-                        const SizedBox(width: 8),
-                        _buildSuggestionChip('Boleh beli HP 3 juta gak?'),
-                        const SizedBox(width: 8),
-                        _buildSuggestionChip('Progres celengan darurat aman gak?'),
-                        const SizedBox(width: 8),
-                        _buildSuggestionChip('Kasih masukan dong buat dompet gue'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  // Input Bar
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sideMargin,
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Container(
-                            constraints: const BoxConstraints(
-                              minHeight: 48,
-                              maxHeight: 120,
-                            ),
-                            padding: const EdgeInsets.only(
-                              left: 16,
-                              right: 8,
-                              top: 2,
-                              bottom: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.surfaceCard,
-                              borderRadius: BorderRadius.circular(24),
-                              boxShadow: AppSpacing.softShadow,
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _textController,
-                                    minLines: 1,
-                                    maxLines: 4,
-                                    keyboardType: TextInputType.multiline,
-                                    textInputAction: TextInputAction.newline,
-                                    onSubmitted: (_) => _sendMessage(),
-                                    style: AppTypography.body,
-                                    decoration: InputDecoration(
-                                      isDense: true,
-                                      hintText: _selectedReceiptBytes != null
-                                          ? 'Catatan nota (opsional)...'
-                                          : 'Tulis transaksi atau tanya...',
-                                      hintStyle: AppTypography.bodySecondary.copyWith(
-                                        fontSize: 13,
-                                      ),
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 4,
-                                        vertical: 11,
-                                      ),
-                                      border: InputBorder.none,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                if (_isProcessingImage)
-                                  const Padding(
-                                    padding: EdgeInsets.only(right: 8, bottom: 12),
-                                    child: SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: AppColors.primary,
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  GestureDetector(
-                                    key: const Key('scan_receipt_action_button'),
-                                    onTap: () => _showScanSourceSheet(context),
-                                    child: Container(
-                                      margin: const EdgeInsets.only(bottom: 4),
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.primaryLight.withValues(alpha: 0.45),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        PhosphorIcons.cameraPlus(PhosphorIconsStyle.bold),
-                                        size: 19,
-                                        color: AppColors.primary,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Container(
+                              constraints: const BoxConstraints(
+                                minHeight: 48,
+                                maxHeight: 120,
+                              ),
+                              padding: const EdgeInsets.only(
+                                left: 16,
+                                right: 8,
+                                top: 2,
+                                bottom: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceCard,
+                                borderRadius: BorderRadius.circular(24),
+                                boxShadow: AppSpacing.softShadow,
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _textController,
+                                      minLines: 1,
+                                      maxLines: 4,
+                                      keyboardType: TextInputType.multiline,
+                                      textInputAction: TextInputAction.newline,
+                                      onSubmitted: (_) => _sendMessage(),
+                                      style: AppTypography.body,
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        hintText: _selectedReceiptBytes != null
+                                            ? 'Catatan nota (opsional)...'
+                                            : 'Tulis transaksi atau tanya...',
+                                        hintStyle: AppTypography.bodySecondary
+                                            .copyWith(fontSize: 13),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 4,
+                                              vertical: 11,
+                                            ),
+                                        border: InputBorder.none,
                                       ),
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Builder(
-                          builder: (context) {
-                            final showSendIcon =
-                                _hasInputText || _selectedReceiptBytes != null;
-                            return GestureDetector(
-                              key: const Key('voice_or_send_action_button'),
-                              onTap: () {
-                                if (showSendIcon) {
-                                  _sendMessage();
-                                } else {
-                                  _toggleVoiceInput();
-                                }
-                              },
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                width: 48,
-                                height: 48,
-                                decoration: const BoxDecoration(
-                                  gradient: AppColors.aiAccentGradient,
-                                  shape: BoxShape.circle,
-                                  boxShadow: AppSpacing.glowShadow,
-                                ),
-                                child: Center(
-                                  child: Icon(
-                                    showSendIcon
-                                        ? PhosphorIcons.arrowUp(
-                                            PhosphorIconsStyle.bold,
-                                          )
-                                        : PhosphorIcons.microphone(
+                                  const SizedBox(width: 4),
+                                  if (_isProcessingImage)
+                                    const Padding(
+                                      padding: EdgeInsets.only(
+                                        right: 8,
+                                        bottom: 12,
+                                      ),
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    GestureDetector(
+                                      key: const Key(
+                                        'scan_receipt_action_button',
+                                      ),
+                                      onTap: () =>
+                                          _showScanSourceSheet(context),
+                                      child: Container(
+                                        margin: const EdgeInsets.only(
+                                          bottom: 4,
+                                        ),
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primaryLight
+                                              .withValues(alpha: 0.45),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          PhosphorIcons.cameraPlus(
                                             PhosphorIconsStyle.bold,
                                           ),
-                                    color: Colors.white,
-                                    size: 20,
+                                          size: 19,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Builder(
+                            builder: (context) {
+                              final showSendIcon =
+                                  _hasInputText ||
+                                  _selectedReceiptBytes != null;
+                              return GestureDetector(
+                                key: const Key('voice_or_send_action_button'),
+                                onTap: () {
+                                  if (showSendIcon) {
+                                    _sendMessage();
+                                  } else {
+                                    _toggleVoiceInput();
+                                  }
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  width: 48,
+                                  height: 48,
+                                  decoration: const BoxDecoration(
+                                    gradient: AppColors.aiAccentGradient,
+                                    shape: BoxShape.circle,
+                                    boxShadow: AppSpacing.glowShadow,
+                                  ),
+                                  child: Center(
+                                    child: Icon(
+                                      showSendIcon
+                                          ? PhosphorIcons.arrowUp(
+                                              PhosphorIconsStyle.bold,
+                                            )
+                                          : PhosphorIcons.microphone(
+                                              PhosphorIconsStyle.bold,
+                                            ),
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
-    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -1016,7 +1113,8 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
         children: [
           Container(
             constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * (isUser ? 0.78 : 0.88),
+              maxWidth:
+                  MediaQuery.of(context).size.width * (isUser ? 0.78 : 0.88),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
@@ -1076,7 +1174,8 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
   /// Mini Audio Player inside the AI Chat Bubble for Voice-Out responses
   Widget _buildMiniAudioPlayer(ChatMessageEntity message) {
     final isCurrentPlaying =
-        _activePlayingMessageId == message.id && (_isTtsSpeaking || _isAudioPlaying);
+        _activePlayingMessageId == message.id &&
+        (_isTtsSpeaking || _isAudioPlaying);
 
     return Material(
       key: Key('mini_audio_player_${message.id}'),
@@ -1213,17 +1312,20 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
       final lines = paragraph.split('\n');
 
       // Cek apakah blok ini adalah Radar Ringkasan Saham/IPO
-      final isRadarBlock = paragraph.contains('🎯') &&
+      final isRadarBlock =
+          paragraph.contains('🎯') &&
           (paragraph.toUpperCase().contains('RADAR') ||
               paragraph.toUpperCase().contains('REKOMENDASI'));
 
-      final isListBlock = lines.any((l) =>
-          l.trim().startsWith('- ') ||
-          l.trim().startsWith('* ') ||
-          l.trim().startsWith('• ') ||
-          l.trim().startsWith('· ') ||
-          l.trim().startsWith('– ') ||
-          RegExp(r'^\d+\.\s+').hasMatch(l.trim()));
+      final isListBlock = lines.any(
+        (l) =>
+            l.trim().startsWith('- ') ||
+            l.trim().startsWith('* ') ||
+            l.trim().startsWith('• ') ||
+            l.trim().startsWith('· ') ||
+            l.trim().startsWith('– ') ||
+            RegExp(r'^\d+\.\s+').hasMatch(l.trim()),
+      );
 
       if (isRadarBlock) {
         children.add(_buildRadarSummaryCard(lines));
@@ -1248,7 +1350,8 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
             continue;
           }
 
-          final isBullet = line.startsWith('- ') ||
+          final isBullet =
+              line.startsWith('- ') ||
               line.startsWith('* ') ||
               line.startsWith('• ') ||
               line.startsWith('· ') ||
@@ -1322,7 +1425,8 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
         continue;
       }
 
-      final isBullet = rawLine.startsWith('- ') ||
+      final isBullet =
+          rawLine.startsWith('- ') ||
           rawLine.startsWith('* ') ||
           rawLine.startsWith('• ') ||
           rawLine.startsWith('· ') ||
@@ -1331,11 +1435,7 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
 
       if (isBullet || isNumbered) {
         cardItems.add(
-          _buildListItem(
-            rawLine,
-            isNumbered: isNumbered,
-            isRadarContext: true,
-          ),
+          _buildListItem(rawLine, isNumbered: isNumbered, isRadarContext: true),
         );
       } else if (rawLine.contains('🎯')) {
         // Radar Header with pill styling
@@ -1400,8 +1500,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
     }
 
     final headerMatch = RegExp(r'^#{1,4}\s+(.*)$').firstMatch(text.trim());
-    final cleanedText =
-        headerMatch != null ? headerMatch.group(1)!.trim() : text;
+    final cleanedText = headerMatch != null
+        ? headerMatch.group(1)!.trim()
+        : text;
     final isHeader = headerMatch != null;
 
     return _buildRichFormattedText(
@@ -1444,7 +1545,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
               style: GoogleFonts.urbanist(
                 color: isRadarContext
                     ? AppColors.primary
-                    : (isNumbered ? AppColors.primary : AppColors.textSecondary),
+                    : (isNumbered
+                          ? AppColors.primary
+                          : AppColors.textSecondary),
                 fontSize: 13.5,
                 fontWeight: FontWeight.w700,
                 height: 1.4,
@@ -1512,9 +1615,7 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
       );
     }
 
-    return RichText(
-      text: TextSpan(children: spans),
-    );
+    return RichText(text: TextSpan(children: spans));
   }
 
   /// Error bubble with retry and dismiss actions
@@ -1714,8 +1815,8 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
   Widget _buildSelectedReceiptPreview() {
     if (_selectedReceiptBytes == null) return const SizedBox.shrink();
 
-    final sizeKb =
-        (_selectedReceiptBytes!.lengthInBytes / 1024).toStringAsFixed(1);
+    final sizeKb = (_selectedReceiptBytes!.lengthInBytes / 1024)
+        .toStringAsFixed(1);
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -1794,6 +1895,54 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildLoadOlderMessagesHeader({
+    required int remainingCount,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 12),
+      child: Center(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(100),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(100),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    PhosphorIcons.clockCounterClockwise(PhosphorIconsStyle.bold),
+                    size: 13,
+                    color: AppColors.primaryDark,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Muat pesan sebelumnya ($remainingCount)',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.primaryDark,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTypingIndicator({bool isScanningReceipt = false}) {
     const scanSteps = [
       'Mengompresi gambar...',
@@ -1805,7 +1954,7 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
       alignment: Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: AppColors.surfaceCard,
           borderRadius: BorderRadius.circular(20),
@@ -1984,7 +2133,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
               const SizedBox(height: 6),
               _buildExtractRow('Catatan', note),
 
-              if (hasEmergencyToggle && !isRejected && !message.isConfirmed) ...[
+              if (hasEmergencyToggle &&
+                  !isRejected &&
+                  !message.isConfirmed) ...[
                 const SizedBox(height: 10),
                 Row(
                   children: [
@@ -2138,7 +2289,9 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
                                     .confirmExtractedTransaction(message);
                                 if (!context.mounted) return;
                                 try {
-                                  context.read<TransactionCubit>().loadTransactions();
+                                  context
+                                      .read<TransactionCubit>()
+                                      .loadTransactions();
                                 } catch (_) {}
                                 try {
                                   context.read<BudgetCubit>().loadBudgets();
@@ -2334,10 +2487,7 @@ class _CoachPageState extends State<CoachPage> with WidgetsBindingObserver {
           decoration: BoxDecoration(
             color: AppColors.surfaceCard,
             borderRadius: BorderRadius.circular(28),
-            border: Border.all(
-              color: badgeBg,
-              width: 1.5,
-            ),
+            border: Border.all(color: badgeBg, width: 1.5),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,

@@ -247,9 +247,14 @@ void main() {
       expect(find.text('Cek & Analisa Saham'), findsOneWidget);
       expect(find.text('Analisis teknikal, bandarmologi & kapasitas saldo'), findsOneWidget);
 
-      // Verify johdev copyright footer exists (rendered in SingleChildScrollView)
-      expect(find.text('FinGuard v1.0.0+1', skipOffstage: false), findsOneWidget);
-      expect(find.text('johdev', skipOffstage: false), findsOneWidget);
+      // Verify author copyright footer exists (rendered in SingleChildScrollView)
+      expect(find.textContaining('FinGuard v1.0.', skipOffstage: false), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is Text && (w.data == 'johdev' || w.data == '@jojohandwytn_'),
+        ),
+        findsOneWidget,
+      );
       expect(find.textContaining('© 2026 FinGuard', skipOffstage: false), findsOneWidget);
     });
 

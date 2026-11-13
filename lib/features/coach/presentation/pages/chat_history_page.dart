@@ -19,12 +19,50 @@ class ChatHistoryPage extends StatefulWidget {
 }
 
 class _ChatHistoryPageState extends State<ChatHistoryPage> {
+  final ScrollController _scrollController = ScrollController();
+  static const int _pageSize = 15;
+  int _displayedLimit = _pageSize;
+  bool _isLoadingMore = false;
+
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<CoachCubit>().loadConversations();
     });
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    if (currentScroll >= maxScroll - 150) {
+      final state = context.read<CoachCubit>().state;
+      final total = state is CoachLoaded
+          ? state.conversations.length
+          : 0;
+      if (!_isLoadingMore && _displayedLimit < total) {
+        setState(() {
+          _isLoadingMore = true;
+        });
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (mounted) {
+            setState(() {
+              _displayedLimit += _pageSize;
+              _isLoadingMore = false;
+            });
+          }
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
   }
 
   String _formatTimestamp(DateTime dateTime) {
@@ -274,16 +312,72 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
                     );
                   }
 
+                  final displayedConversations =
+                      conversations.take(_displayedLimit).toList();
+                  final bool hasMore =
+                      _displayedLimit < conversations.length;
+
                   return RefreshIndicator(
-                    onRefresh: () =>
-                        context.read<CoachCubit>().loadConversations(),
+                    onRefresh: () async {
+                      setState(() {
+                        _displayedLimit = _pageSize;
+                      });
+                      await context.read<CoachCubit>().loadConversations();
+                    },
                     color: AppColors.primaryDark,
                     child: ListView.separated(
+                      controller: _scrollController,
                       padding: const EdgeInsets.all(AppSpacing.sideMargin),
-                      itemCount: conversations.length,
+                      itemCount: displayedConversations.length +
+                          (conversations.length > _pageSize ? 1 : 0),
                       separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
-                        final conv = conversations[index];
+                        if (index == displayedConversations.length) {
+                          if (hasMore) {
+                            return Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 16),
+                              child: Center(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Memuat riwayat lainnya...',
+                                      style: AppTypography.caption.copyWith(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          } else {
+                            return Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 16),
+                              child: Center(
+                                child: Text(
+                                  'Semua ${conversations.length} riwayat percakapan telah dimuat',
+                                  style: AppTypography.caption.copyWith(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 11.5,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                        final conv = displayedConversations[index];
                         final isActive = conv.id == activeId;
 
                         return Material(

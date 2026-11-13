@@ -28,6 +28,11 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
   final Set<String> _readIds = {};
   final Set<String> _dismissedIds = {};
 
+  static const int _pageSize = 15;
+  int _displayedLimit = _pageSize;
+  final ScrollController _scrollController = ScrollController();
+  bool _isLoadingMore = false;
+
   String? get _currentUserId {
     try {
       final pState = context.read<ProfileCubit>().state;
@@ -42,6 +47,38 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
   void initState() {
     super.initState();
     _loadStoredPreferences();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || _isLoadingMore) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      final all = _buildNotifications();
+      final filteredCount = all.where((n) {
+        if (_selectedCategory == NotificationCategory.all) return true;
+        return n.category == _selectedCategory;
+      }).length;
+
+      if (_displayedLimit < filteredCount) {
+        setState(() => _isLoadingMore = true);
+        Future.delayed(const Duration(milliseconds: 250), () {
+          if (mounted) {
+            setState(() {
+              _displayedLimit += _pageSize;
+              _isLoadingMore = false;
+            });
+          }
+        });
+      }
+    }
   }
 
   Future<void> _loadStoredPreferences() async {
@@ -248,49 +285,100 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
           Expanded(
             child: filtered.isEmpty
                 ? _buildEmptyState(_selectedCategory)
-                : ListView.separated(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.only(
-                      left: AppSpacing.screenHorizontalMargin,
-                      right: AppSpacing.screenHorizontalMargin,
-                      top: 8,
-                      bottom: 32,
-                    ),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, index) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final item = filtered[index];
-                      return Dismissible(
-                        key: Key(item.id),
-                        direction: DismissDirection.endToStart,
-                        background: Container(
-                          decoration: BoxDecoration(
-                            color: AppColors.expenseRed,
-                            borderRadius: BorderRadius.circular(
-                              AppSpacing.radiusBentoAndItem,
-                            ),
-                          ),
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 20),
-                          child: Icon(
-                            PhosphorIcons.trash(),
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                : Builder(
+                    builder: (context) {
+                      final visibleItems = filtered.take(_displayedLimit).toList();
+                      final bool hasMore = _displayedLimit < filtered.length;
+
+                      return ListView.separated(
+                        controller: _scrollController,
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.only(
+                          left: AppSpacing.screenHorizontalMargin,
+                          right: AppSpacing.screenHorizontalMargin,
+                          top: 8,
+                          bottom: 32,
                         ),
-                        onDismissed: (_) {
-                          setState(() {
-                            _dismissedIds.add(item.id);
-                          });
-                          _saveDismissedIds();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Notifikasi dihapus'),
-                              duration: Duration(seconds: 2),
+                        itemCount: visibleItems.length +
+                            (filtered.length > _pageSize ? 1 : 0),
+                        separatorBuilder: (_, index) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          if (index == visibleItems.length) {
+                            if (hasMore) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                child: Center(
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Memuat notifikasi lainnya...',
+                                        style: AppTypography.captionText.copyWith(
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              child: Center(
+                                child: Text(
+                                  'Semua ${filtered.length} notifikasi telah dimuat',
+                                  style: AppTypography.captionText.copyWith(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+
+                          final item = visibleItems[index];
+                          return Dismissible(
+                            key: Key(item.id),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              decoration: BoxDecoration(
+                                color: AppColors.expenseRed,
+                                borderRadius: BorderRadius.circular(
+                                  AppSpacing.radiusBentoAndItem,
+                                ),
+                              ),
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              child: Icon(
+                                PhosphorIcons.trash(),
+                                color: Colors.white,
+                                size: 20,
+                              ),
                             ),
+                            onDismissed: (_) {
+                              setState(() {
+                                _dismissedIds.add(item.id);
+                              });
+                              _saveDismissedIds();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Notifikasi dihapus'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            child: _buildNotificationCard(item),
                           );
                         },
-                        child: _buildNotificationCard(item),
                       );
                     },
                   ),
@@ -307,7 +395,17 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
   }) {
     final isSelected = _selectedCategory == category;
     return GestureDetector(
-      onTap: () => setState(() => _selectedCategory = category),
+      onTap: () {
+        if (_selectedCategory != category) {
+          setState(() {
+            _selectedCategory = category;
+            _displayedLimit = _pageSize;
+          });
+          if (_scrollController.hasClients) {
+            _scrollController.jumpTo(0);
+          }
+        }
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(

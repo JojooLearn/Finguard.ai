@@ -605,7 +605,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                       child: Text(
-                        'FinGuard v1.0.0+1',
+                        'FinGuard v1.0.1',
                         style: AppTypography.captionText.copyWith(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -640,7 +640,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         Text(
-                          'johdev',
+                          '@jojohandwytn_',
                           style: AppTypography.captionText.copyWith(
                             fontSize: 12,
                             fontWeight: FontWeight.w800,

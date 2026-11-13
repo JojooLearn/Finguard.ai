@@ -29,6 +29,7 @@ class MonthlyReviewPage extends StatefulWidget {
 class _MonthlyReviewPageState extends State<MonthlyReviewPage> {
   late DateTime _currentMonth;
   late final MonthlyReviewCubit _cubit;
+  bool _showAllTransactions = false;
 
   @override
   void initState() {
@@ -52,6 +53,7 @@ class _MonthlyReviewPageState extends State<MonthlyReviewPage> {
         _currentMonth.month + offset,
         1,
       );
+      _showAllTransactions = false;
     });
     _cubit.loadReviewForMonth(_currentMonth, forceRegenerate: true);
   }
@@ -112,6 +114,7 @@ class _MonthlyReviewPageState extends State<MonthlyReviewPage> {
                           final currentMonth = DateTime(now.year, now.month, 1);
                           setState(() {
                             _currentMonth = currentMonth;
+                            _showAllTransactions = false;
                           });
                           _cubit.loadReviewForMonth(
                             _currentMonth,
@@ -201,6 +204,7 @@ class _MonthlyReviewPageState extends State<MonthlyReviewPage> {
                             );
                             setState(() {
                               _currentMonth = chosenMonth;
+                              _showAllTransactions = false;
                             });
                             _cubit.loadReviewForMonth(
                               _currentMonth,
@@ -831,132 +835,182 @@ class _MonthlyReviewPageState extends State<MonthlyReviewPage> {
                                                 ),
                                           ),
                                         )
-                                      else
-                                        ListView.separated(
-                                          shrinkWrap: true,
-                                          physics:
-                                              const NeverScrollableScrollPhysics(),
-                                          itemCount:
-                                              state.review.transactions.length,
-                                          separatorBuilder: (_, index) =>
-                                              Divider(
-                                                height: 16,
-                                                thickness: 1,
-                                                color: Colors.black.withValues(
-                                                  alpha: 0.04,
-                                                ),
-                                              ),
-                                          itemBuilder: (context, index) {
-                                            final tx = state
-                                                .review
-                                                .transactions[index];
-                                            final isInc =
-                                                tx.transactionType ==
-                                                TransactionType.income;
-                                            String noteText =
-                                                tx.note?.isNotEmpty == true
-                                                ? tx.note!
-                                                : (tx.category?.name ??
-                                                      'Transaksi');
-                                            if (noteText.startsWith(
-                                              'Pemasukan Bulanan Awal',
-                                            )) {
-                                              noteText = 'Gaji Bulanan';
-                                            }
+                                      else ...[
+                                        Builder(
+                                          builder: (context) {
+                                            final allTxs = state.review.transactions;
+                                            final displayedTxs = _showAllTransactions
+                                                ? allTxs
+                                                : allTxs.take(5).toList();
 
-                                            return Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 4,
-                                                  ),
-                                              child: Row(
-                                                children: [
-                                                  Container(
-                                                    width: 34,
-                                                    height: 34,
-                                                    decoration: BoxDecoration(
-                                                      color: isInc
-                                                          ? AppColors
-                                                                .incomeGreenBg
-                                                          : AppColors
-                                                                .expenseRedBg,
-                                                      shape: BoxShape.circle,
-                                                    ),
-                                                    child: Center(
-                                                      child: Icon(
-                                                        isInc
-                                                            ? PhosphorIcons.arrowDownLeft()
-                                                            : PhosphorIcons.arrowUpRight(),
-                                                        color: isInc
-                                                            ? AppColors
-                                                                  .incomeGreen
-                                                            : AppColors
-                                                                  .expenseRed,
-                                                        size: 16,
+                                            return Column(
+                                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                                              children: [
+                                                ListView.separated(
+                                                  shrinkWrap: true,
+                                                  physics:
+                                                      const NeverScrollableScrollPhysics(),
+                                                  itemCount: displayedTxs.length,
+                                                  separatorBuilder: (_, index) =>
+                                                      Divider(
+                                                        height: 16,
+                                                        thickness: 1,
+                                                        color: Colors.black.withValues(
+                                                          alpha: 0.04,
+                                                        ),
+                                                      ),
+                                                  itemBuilder: (context, index) {
+                                                    final tx = displayedTxs[index];
+                                                    final isInc =
+                                                        tx.transactionType ==
+                                                        TransactionType.income;
+                                                    String noteText =
+                                                        tx.note?.isNotEmpty == true
+                                                        ? tx.note!
+                                                        : (tx.category?.name ??
+                                                              'Transaksi');
+                                                    if (noteText.startsWith(
+                                                      'Pemasukan Bulanan Awal',
+                                                    )) {
+                                                      noteText = 'Gaji Bulanan';
+                                                    }
+
+                                                    return Padding(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            vertical: 4,
+                                                          ),
+                                                      child: Row(
+                                                        children: [
+                                                          Container(
+                                                            width: 34,
+                                                            height: 34,
+                                                            decoration: BoxDecoration(
+                                                              color: isInc
+                                                                  ? AppColors
+                                                                        .incomeGreenBg
+                                                                  : AppColors
+                                                                        .expenseRedBg,
+                                                              shape: BoxShape.circle,
+                                                            ),
+                                                            child: Center(
+                                                              child: Icon(
+                                                                isInc
+                                                                    ? PhosphorIcons.arrowDownLeft()
+                                                                    : PhosphorIcons.arrowUpRight(),
+                                                                color: isInc
+                                                                    ? AppColors
+                                                                          .incomeGreen
+                                                                    : AppColors
+                                                                          .expenseRed,
+                                                                size: 16,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 12),
+                                                          Expanded(
+                                                            child: Column(
+                                                              crossAxisAlignment:
+                                                                  CrossAxisAlignment
+                                                                      .start,
+                                                              children: [
+                                                                Text(
+                                                                  noteText,
+                                                                  style: AppTypography
+                                                                      .itemTitle
+                                                                      .copyWith(
+                                                                        fontSize: 13,
+                                                                        fontWeight:
+                                                                            FontWeight
+                                                                                .w700,
+                                                                      ),
+                                                                  maxLines: 1,
+                                                                  overflow: TextOverflow
+                                                                      .ellipsis,
+                                                                ),
+                                                                const SizedBox(
+                                                                  height: 2,
+                                                                ),
+                                                                Text(
+                                                                  '${DateFormat('dd MMM yyyy', 'id_ID').format(tx.transactionDate)} · ${tx.category?.name ?? (isInc ? 'Pemasukan' : 'Pengeluaran')}',
+                                                                  style: AppTypography
+                                                                      .captionText
+                                                                      .copyWith(
+                                                                        fontSize: 11,
+                                                                        color: AppColors
+                                                                            .textSecondary,
+                                                                      ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 14),
+                                                          Text(
+                                                            CurrencyFormatter.formatSigned(
+                                                              tx.amount,
+                                                              isIncome: isInc,
+                                                            ),
+                                                            style: AppTypography
+                                                                .itemTitle
+                                                                .copyWith(
+                                                                  fontSize: 13.5,
+                                                                  fontWeight:
+                                                                      FontWeight.w800,
+                                                                  color: isInc
+                                                                      ? AppColors
+                                                                            .incomeGreen
+                                                                      : AppColors
+                                                                            .textPrimary,
+                                                                ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
+                                                if (allTxs.length > 5) ...[
+                                                  const SizedBox(height: 12),
+                                                  Center(
+                                                    child: TextButton.icon(
+                                                      onPressed: () {
+                                                        setState(() {
+                                                          _showAllTransactions = !_showAllTransactions;
+                                                        });
+                                                      },
+                                                      icon: Icon(
+                                                        _showAllTransactions
+                                                            ? PhosphorIcons.caretUp()
+                                                            : PhosphorIcons.caretDown(),
+                                                        size: 15,
+                                                        color: AppColors.primary,
+                                                      ),
+                                                      label: Text(
+                                                        _showAllTransactions
+                                                            ? 'Ciutkan ke 5 Transaksi Terakhir'
+                                                            : 'Tampilkan Semua (${allTxs.length} Transaksi)',
+                                                        style: AppTypography.caption.copyWith(
+                                                          color: AppColors.primary,
+                                                          fontWeight: FontWeight.w700,
+                                                        ),
                                                       ),
                                                     ),
                                                   ),
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                        Text(
-                                                          noteText,
-                                                          style: AppTypography
-                                                              .itemTitle
-                                                              .copyWith(
-                                                                fontSize: 13,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w700,
-                                                              ),
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                        ),
-                                                        const SizedBox(
-                                                          height: 2,
-                                                        ),
-                                                        Text(
-                                                          '${DateFormat('dd MMM yyyy', 'id_ID').format(tx.transactionDate)} · ${tx.category?.name ?? (isInc ? 'Pemasukan' : 'Pengeluaran')}',
-                                                          style: AppTypography
-                                                              .captionText
-                                                              .copyWith(
-                                                                fontSize: 11,
-                                                                color: AppColors
-                                                                    .textSecondary,
-                                                              ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 14),
+                                                  const SizedBox(height: 4),
                                                   Text(
-                                                    CurrencyFormatter.formatSigned(
-                                                      tx.amount,
-                                                      isIncome: isInc,
+                                                    'Hanya 5 transaksi terbaru ditampilkan untuk kenyamanan layar. Gunakan tombol Cetak Laporan PDF Resmi di bawah untuk melihat dan menyimpan seluruh transaksi lengkap.',
+                                                    textAlign: TextAlign.center,
+                                                    style: AppTypography.caption.copyWith(
+                                                      fontSize: 11,
+                                                      color: AppColors.textSecondary,
+                                                      height: 1.35,
                                                     ),
-                                                    style: AppTypography
-                                                        .itemTitle
-                                                        .copyWith(
-                                                          fontSize: 13.5,
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color: isInc
-                                                              ? AppColors
-                                                                    .incomeGreen
-                                                              : AppColors
-                                                                    .textPrimary,
-                                                        ),
                                                   ),
                                                 ],
-                                              ),
+                                              ],
                                             );
                                           },
                                         ),
+                                      ],
                                     ],
                                   ),
                                 ),

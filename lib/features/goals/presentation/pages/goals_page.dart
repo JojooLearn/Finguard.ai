@@ -24,6 +24,7 @@ class GoalsPage extends StatefulWidget {
 class _GoalsPageState extends State<GoalsPage> {
   final Map<String, double> _localContributions = {};
   final List<_LocalGoalItem> _localCreatedGoals = [];
+  int _secondaryGoalsLimit = 6;
 
   void _showAddGoalDialog(BuildContext context, {bool hasEmergencyFund = false}) {
     final nameCtrl = TextEditingController();
@@ -827,13 +828,59 @@ class _GoalsPageState extends State<GoalsPage> {
                           ],
                         ),
                       )
-                    else
-                      ...displayGoals.skip(1).map(
+                    else ...[
+                      ...displayGoals
+                          .skip(1)
+                          .take(_secondaryGoalsLimit)
+                          .map(
                             (goal) => _buildSecondaryGoalCard(
                               context: context,
                               goal: goal,
                             ),
                           ),
+                      if (displayGoals.length - 1 > _secondaryGoalsLimit)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 8),
+                          child: Center(
+                            child: TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _secondaryGoalsLimit += 6;
+                                });
+                              },
+                              icon: Icon(PhosphorIcons.caretDown(),
+                                  size: 15, color: AppColors.primary),
+                              label: Text(
+                                'Tampilkan ${displayGoals.length - 1 - _secondaryGoalsLimit} target impian lainnya',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (displayGoals.length - 1 > 6)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 8),
+                          child: Center(
+                            child: TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _secondaryGoalsLimit = 6;
+                                });
+                              },
+                              child: Text(
+                                'Ciutkan target impian',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
 
                     const SizedBox(height: 36),
                   ],

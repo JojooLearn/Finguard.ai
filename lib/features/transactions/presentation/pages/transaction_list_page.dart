@@ -38,21 +38,53 @@ class _TransactionListPageState extends State<TransactionListPage> {
   String _searchQuery = '';
   String? _selectedCategoryFilter;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  static const int _pageSize = 15;
+  int _displayedLimit = _pageSize;
+  bool _isLoadingMore = false;
+  int _totalItemsCount = 0;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     context.read<TransactionCubit>().loadTransactions();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    if (currentScroll >= maxScroll - 200) {
+      if (!_isLoadingMore && _displayedLimit < _totalItemsCount) {
+        setState(() {
+          _isLoadingMore = true;
+        });
+        Future.delayed(const Duration(milliseconds: 250), () {
+          if (mounted) {
+            setState(() {
+              _displayedLimit += _pageSize;
+              _isLoadingMore = false;
+            });
+          }
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
   void _onFilterChanged(String value) {
-    setState(() => _filter = value);
+    setState(() {
+      _filter = value;
+      _displayedLimit = _pageSize;
+    });
     TransactionType? type;
     if (value == 'income') type = TransactionType.income;
     if (value == 'expense') type = TransactionType.expense;
@@ -619,8 +651,10 @@ class _TransactionListPageState extends State<TransactionListPage> {
                   ),
                   child: TextField(
                     controller: _searchController,
-                    onChanged: (val) =>
-                        setState(() => _searchQuery = val.trim().toLowerCase()),
+                    onChanged: (val) => setState(() {
+                      _searchQuery = val.trim().toLowerCase();
+                      _displayedLimit = _pageSize;
+                    }),
                     style: AppTypography.body,
                     decoration: InputDecoration(
                       prefixIcon: const Icon(
@@ -633,7 +667,10 @@ class _TransactionListPageState extends State<TransactionListPage> {
                               icon: const Icon(Icons.close_rounded, size: 18),
                               onPressed: () {
                                 _searchController.clear();
-                                setState(() => _searchQuery = '');
+                                setState(() {
+                                  _searchQuery = '';
+                                  _displayedLimit = _pageSize;
+                                });
                               },
                             )
                           : null,
@@ -798,10 +835,17 @@ class _TransactionListPageState extends State<TransactionListPage> {
                         );
                       }
 
-                      final groups = _groupByDate(items);
+                      _totalItemsCount = items.length;
+                      final displayedItems =
+                          items.take(_displayedLimit).toList();
+                      final groups = _groupByDate(displayedItems);
+                      final bool hasMore = _displayedLimit < items.length;
 
                       return RefreshIndicator(
                         onRefresh: () async {
+                          setState(() {
+                            _displayedLimit = _pageSize;
+                          });
                           TransactionType? type;
                           if (_filter == 'income') type = TransactionType.income;
                           if (_filter == 'expense') {
@@ -812,10 +856,57 @@ class _TransactionListPageState extends State<TransactionListPage> {
                               .loadTransactions(filterType: type);
                         },
                         child: ListView.builder(
+                          controller: _scrollController,
                           padding: const EdgeInsets.symmetric(
                               horizontal: 20, vertical: 8),
-                          itemCount: groups.length,
+                          itemCount: groups.length +
+                              (items.length > _pageSize ? 1 : 0),
                           itemBuilder: (context, groupIndex) {
+                            if (groupIndex == groups.length) {
+                              if (hasMore) {
+                                return Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 20),
+                                  child: Center(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: AppColors.primary,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          'Memuat transaksi berikutnya...',
+                                          style: AppTypography.caption.copyWith(
+                                            color: AppColors.textSecondary,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              } else {
+                                return Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 20),
+                                  child: Center(
+                                    child: Text(
+                                      'Semua ${items.length} transaksi telah ditampilkan',
+                                      style: AppTypography.caption.copyWith(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
                             final group = groups[groupIndex];
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
